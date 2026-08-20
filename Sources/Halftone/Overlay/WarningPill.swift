@@ -66,7 +66,7 @@ struct WarningPillView: View {
                 Text("Break in")
                     .font(.system(size: 13, weight: .medium))
 
-                Text(timerInterval: Date()...breakAt, countsDown: true, showsHours: false)
+                Text(timerInterval: Date()...max(breakAt, Date()), countsDown: true, showsHours: false)
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
 
                 Button("Snooze", action: onSnooze)

@@ -57,16 +57,22 @@ final class IdleMonitor {
             } else {
                 arm(after: 2, leeway: .seconds(1)) // poll for return
             }
-        } else {
-            if idle >= threshold, !(isSuppressed?() ?? false) {
+        } else if idle >= threshold {
+            if isSuppressed?() ?? false {
+                // Media is playing; the user is watching, not away. Past the
+                // threshold "threshold - idle" is <= 0, which would degrade
+                // into a 1-second poll for the whole movie. Back off instead:
+                // suppression ending matters within ~30s, not within 1s.
+                arm(after: 30, leeway: .seconds(10))
+            } else {
                 isIdle = true
                 idleStartedAt = Date().addingTimeInterval(-idle)
                 onWentIdle?()
                 arm(after: 2, leeway: .seconds(1))
-            } else {
-                // Wake exactly when the threshold could first be crossed.
-                arm(after: max(1, threshold - idle), leeway: .seconds(5))
             }
+        } else {
+            // Wake exactly when the threshold could first be crossed.
+            arm(after: max(1, threshold - idle), leeway: .seconds(5))
         }
     }
 

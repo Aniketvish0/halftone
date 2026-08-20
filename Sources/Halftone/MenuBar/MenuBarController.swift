@@ -134,6 +134,17 @@ struct MenuBarLabel: View {
             Image(systemName: symbolName)
                 .symbolRenderingMode(.hierarchical)
                 .font(.system(size: 13, weight: .medium))
+                .overlay(alignment: .topTrailing) {
+                    // Live "I see your call" indicator: a small dot whenever a
+                    // hold condition is detected, even mid-countdown, so a
+                    // ticking timer during a meeting reads as safe, not armed.
+                    if engine.context.shouldHold, showsDot {
+                        Circle()
+                            .fill(.orange)
+                            .frame(width: 5, height: 5)
+                            .offset(x: 2, y: -1)
+                    }
+                }
 
             if Preferences.shared.showCountdownInMenuBar, let range = countdownRange {
                 // Energy: per-second ticking redraws our status window ~3x/s
@@ -152,6 +163,14 @@ struct MenuBarLabel: View {
         }
         .padding(.horizontal, 2)
         .frame(maxHeight: .infinity)
+    }
+
+    /// The dot is redundant when the icon itself already means "held".
+    private var showsDot: Bool {
+        switch engine.state {
+        case .working, .warning: true
+        default: false
+        }
     }
 
     private var symbolName: String {

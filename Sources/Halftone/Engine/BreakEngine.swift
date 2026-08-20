@@ -22,16 +22,27 @@ final class BreakEngine {
         /// Smart Pause: a break came due while a hold condition was active.
         /// `overdueSince` preserves when it should have fired.
         case heldByContext(kind: BreakKind, overdueSince: Date)
-        /// User stepped away; time away counts as their break.
-        case idle(since: Date)
+        /// User stepped away. `pending` carries the interrupted countdown so a
+        /// short absence can restore it instead of restarting the cycle.
+        case idle(since: Date, pending: PendingBreak?)
         /// Outside configured office hours; scheduling suspended.
         case offHours
     }
 
+    struct PendingBreak: Equatable {
+        var dueAt: Date
+        var kind: BreakKind
+    }
+
     private(set) var state: State = .pausedByUser(until: nil)
 
-    /// Long-break cadence: every Nth completed short-cycle becomes a long break.
-    private var shortBreaksSinceLong = 0
+    /// When the current work cycle began. Lets a preference change re-derive
+    /// the due date without discarding time already worked.
+    private var cycleStartedAt = Date()
+
+    /// Long-break cadence is time-based: a break whose due date lands at least
+    /// `longInterval` after the last completed long break becomes long.
+    private var lastLongBreakAt = Date()
 
     /// Time left on the countdown when the user paused, so resume continues
     /// where they stopped instead of restarting the full interval.
@@ -55,7 +66,7 @@ final class BreakEngine {
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.revalidate() }
+            MainActor.assumeIsolated { self?.systemWoke() }
         }
 
         context.onChange = { [weak self] in self?.contextChanged() }
@@ -102,14 +113,11 @@ final class BreakEngine {
             if context.shouldHold, due.timeIntervalSinceNow < prefs.warnLead {
                 transition(.heldByContext(kind: kind, overdueSince: due))
             }
-        case .heldByContext(let kind, let overdueSince):
+        case .heldByContext(let kind, _):
             if !context.shouldHold {
                 // Hold cleared. Fire the overdue break after a short grace
                 // (let the user breathe after their call).
-                let grace = Date().addingTimeInterval(15)
-                _ = overdueSince
-                transition(.warning(breakAt: grace, kind: kind))
-                warningPill?.show(breakAt: grace)
+                enterWarning(breakAt: Date().addingTimeInterval(15), kind: kind)
             }
         case .inBreak:
             // A hold beginning mid-break (e.g. answering a call during a
@@ -126,28 +134,52 @@ final class BreakEngine {
 
     private func wentIdle() {
         guard prefs.idleEnabled else { return }
+        enterIdle(since: Date())
+    }
+
+    /// Captures the interrupted countdown (if any) so a short absence can
+    /// restore it. Used by both idle detection and lock/sleep.
+    private func enterIdle(since: Date) {
+        let pending: PendingBreak? = {
+            switch state {
+            case .working(let due, let kind), .warning(let due, let kind):
+                return PendingBreak(dueAt: due, kind: kind)
+            case .heldByContext(let kind, let overdueSince):
+                return PendingBreak(dueAt: overdueSince, kind: kind)
+            default:
+                return nil
+            }
+        }()
         switch state {
         case .working, .warning, .heldByContext:
             warningPill?.hide()
-            transition(.idle(since: Date()))
-        case .inBreak:
-            // Away during a break = taking the break; let it complete naturally.
-            break
+            transition(.idle(since: since, pending: pending))
         default:
             break
         }
     }
 
     private func returnedFromIdle(after away: TimeInterval) {
-        guard case .idle = state else { return }
-        // Away long enough to count as a full break resets the cycle; a
-        // shorter absence still counts: push the next break out by it.
-        if away >= prefs.shortDuration {
-            shortBreaksSinceLong += away >= prefs.longDuration ? 0 : 1
-            if away >= prefs.longDuration { shortBreaksSinceLong = 0 }
+        guard case .idle(_, let pending) = state else { return }
+        if away >= prefs.longDuration {
+            // Long enough to count as a long break: full cycle reset.
+            lastLongBreakAt = Date()
             scheduleNextBreak(from: Date())
+        } else if away >= prefs.shortDuration {
+            // Counts as a short break: fresh cycle.
+            scheduleNextBreak(from: Date())
+        } else if let pending {
+            // Too short to be a break. The countdown continues where it was;
+            // wall clock kept running, so the due date is unchanged.
+            if pending.dueAt > Date() {
+                cycleStartedAt = pending.dueAt.addingTimeInterval(-prefs.shortInterval)
+                transition(.working(nextBreakAt: pending.dueAt, kind: pending.kind))
+            } else {
+                // Came due while away: warn now, then break.
+                enterWarning(breakAt: Date().addingTimeInterval(15), kind: pending.kind)
+            }
         } else {
-            scheduleNextBreak(from: Date().addingTimeInterval(away - prefs.shortInterval < 0 ? away : 0))
+            scheduleNextBreak(from: Date())
         }
     }
 
@@ -155,9 +187,9 @@ final class BreakEngine {
         if awaySince == nil { awaySince = Date() }
         if case .inBreak = state { return }
         if case .pausedByUser = state { return }
-        warningPill?.hide()
         overlayController?.hide()
-        transition(.idle(since: awaySince ?? Date()))
+        warningPill?.hide()
+        enterIdle(since: awaySince ?? Date())
     }
 
     private func systemCameBack() {
@@ -166,6 +198,22 @@ final class BreakEngine {
         if case .idle = state {
             returnedFromIdle(after: Date().timeIntervalSince(since))
         }
+    }
+
+    /// Wake without a lock (no password after sleep, auto-login) never posts
+    /// screenIsUnlocked — treat wake itself as the return unless the screen is
+    /// actually still locked, in which case the unlock notification finishes.
+    private func systemWoke() {
+        if awaySince != nil, !Self.screenIsLocked() {
+            systemCameBack()
+        } else {
+            revalidate()
+        }
+    }
+
+    private static func screenIsLocked() -> Bool {
+        guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return (dict["CGSSessionScreenIsLocked"] as? Bool) ?? false
     }
 
     // MARK: - Office hours
@@ -211,15 +259,17 @@ final class BreakEngine {
     func resume() {
         if let paused = pausedRemaining {
             pausedRemaining = nil
-            transition(.working(nextBreakAt: Date().addingTimeInterval(paused.remaining),
-                                kind: paused.kind))
+            let due = Date().addingTimeInterval(paused.remaining)
+            cycleStartedAt = due.addingTimeInterval(-prefs.shortInterval)
+            transition(.working(nextBreakAt: due, kind: paused.kind))
         } else {
             scheduleNextBreak(from: Date())
         }
     }
 
+    /// Explicit user command: starts the break even during a context hold.
     func startBreakNow(kind: BreakKind = .short) {
-        beginBreak(kind: kind)
+        beginBreak(kind: kind, force: true)
     }
 
     func skipBreak() {
@@ -232,7 +282,9 @@ final class BreakEngine {
         case .warning(_, let kind), .inBreak(let kind, _):
             warningPill?.hide()
             overlayController?.hide()
-            transition(.working(nextBreakAt: Date().addingTimeInterval(seconds), kind: kind))
+            let due = Date().addingTimeInterval(seconds)
+            cycleStartedAt = due.addingTimeInterval(-prefs.shortInterval)
+            transition(.working(nextBreakAt: due, kind: kind))
         default: break
         }
     }
@@ -244,16 +296,21 @@ final class BreakEngine {
             transition(.offHours)
             return
         }
-        let isLong = shortBreaksSinceLong + 1 >= max(1, prefs.longIntervalMin / max(1, prefs.shortIntervalMin))
-        let kind: BreakKind = isLong ? .long : .short
+        cycleStartedAt = now
         let due = now.addingTimeInterval(prefs.shortInterval)
-        transition(.working(nextBreakAt: due, kind: kind))
+        transition(.working(nextBreakAt: due, kind: kindForBreak(dueAt: due)))
+    }
+
+    /// Time-based cadence: a break is long when it lands at least longInterval
+    /// after the last completed long break. Works for any short/long ratio.
+    private func kindForBreak(dueAt: Date) -> BreakKind {
+        dueAt.timeIntervalSince(lastLongBreakAt) >= prefs.longInterval ? .long : .short
     }
 
     private func enterWarning(breakAt: Date, kind: BreakKind) {
-        // A hold that's already active when the warning moment arrives must
-        // suppress the pill too, not just the break (contextChanged only
-        // catches holds that *begin* during the warning).
+        // A hold active at the warning moment suppresses the pill too, not
+        // just the break (contextChanged only catches holds that *begin*
+        // during the warning).
         if context.shouldHold {
             transition(.heldByContext(kind: kind, overdueSince: breakAt))
             return
@@ -262,8 +319,8 @@ final class BreakEngine {
         warningPill?.show(breakAt: breakAt)
     }
 
-    private func beginBreak(kind: BreakKind) {
-        if context.shouldHold {
+    private func beginBreak(kind: BreakKind, force: Bool = false) {
+        if context.shouldHold, !force {
             transition(.heldByContext(kind: kind, overdueSince: Date()))
             return
         }
@@ -276,9 +333,8 @@ final class BreakEngine {
     }
 
     private func endBreak(completed: Bool) {
-        if case .inBreak(let kind, _) = state {
-            if kind == .long { shortBreaksSinceLong = 0 }
-            else if completed { shortBreaksSinceLong += 1 }
+        if case .inBreak(let kind, _) = state, kind == .long, completed {
+            lastLongBreakAt = Date()
         }
         overlayController?.hide()
         if completed, prefs.playSounds { NSSound(named: "Blow")?.play() }
@@ -295,13 +351,13 @@ final class BreakEngine {
 
     private struct Snapshot: Codable {
         var savedAt: Date
-        var shortBreaksSinceLong: Int
+        var lastLongBreakAt: Date?
         var workingDueAt: Date?
         var workingKind: BreakKind?
     }
 
     private func persistSnapshot() {
-        var snap = Snapshot(savedAt: Date(), shortBreaksSinceLong: shortBreaksSinceLong)
+        var snap = Snapshot(savedAt: Date(), lastLongBreakAt: lastLongBreakAt)
         if case .working(let due, let kind) = state {
             snap.workingDueAt = due
             snap.workingKind = kind
@@ -314,18 +370,22 @@ final class BreakEngine {
     private func restoreSnapshot() -> Bool {
         guard let data = UserDefaults.standard.data(forKey: "engineSnapshot"),
               let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return false }
-        shortBreaksSinceLong = snap.shortBreaksSinceLong
-        // Resume the working countdown only if it's still meaningful:
-        // saved recently and the due date is in the future.
+        if let last = snap.lastLongBreakAt { lastLongBreakAt = last }
+        // Resume the working countdown only if it's still meaningful: saved
+        // recently, due in the future, and inside office hours (the schedule
+        // gate must hold on restore too, or a pre-close countdown can fire an
+        // overlay after hours).
         if let due = snap.workingDueAt, let kind = snap.workingKind,
-           due > Date(), Date().timeIntervalSince(snap.savedAt) < prefs.shortInterval {
+           due > Date(), Date().timeIntervalSince(snap.savedAt) < prefs.shortInterval,
+           OfficeHours.isActive() {
+            cycleStartedAt = due.addingTimeInterval(-prefs.shortInterval)
             transition(.working(nextBreakAt: due, kind: kind))
             return true
         }
         return false
     }
 
-    /// Called on wake / preference change: re-derive where we should be from Dates.
+    /// Re-derive where we should be from stored Dates (wake, hold release).
     private func revalidate() {
         let now = Date()
         switch state {
@@ -347,10 +407,31 @@ final class BreakEngine {
     }
 
     private func preferencesChanged() {
-        if prefs.idleEnabled { idleMonitor.start() } else { idleMonitor.stop() }
+        if prefs.idleEnabled {
+            idleMonitor.start()
+        } else {
+            idleMonitor.stop()
+            // Disabling idle detection while away would strand .idle forever
+            // (its only exit is the monitor's return callback).
+            if case .idle = state { scheduleNextBreak(from: Date()) }
+        }
+
         switch state {
-        case .working:
-            scheduleNextBreak(from: Date())
+        case .working(_, let kind):
+            // Re-derive the due date from the cycle start so changing the
+            // interval respects time already worked. Unrelated preference
+            // changes produce the same due date and are ignored — the old
+            // behavior restarted the countdown on every Settings tweak.
+            let newDue = cycleStartedAt.addingTimeInterval(prefs.shortInterval)
+            let current: Date? = { if case .working(let d, _) = state { return d } ; return nil }()
+            if let current, abs(newDue.timeIntervalSince(current)) > 1 {
+                if newDue > Date() {
+                    transition(.working(nextBreakAt: newDue, kind: kind))
+                } else {
+                    // New interval is already exceeded: warn, then break.
+                    enterWarning(breakAt: Date().addingTimeInterval(15), kind: kind)
+                }
+            }
         case .offHours:
             officeHoursChanged() // office hours may have been disabled/changed
         default:
@@ -378,7 +459,7 @@ final class BreakEngine {
             case .heldByContext:
                 return (nil, .seconds(0)) // released by contextChanged()
             case .idle:
-                return (nil, .seconds(0)) // released by IdleMonitor
+                return (nil, .seconds(0)) // released by IdleMonitor / unlock
             case .offHours:
                 return (OfficeHours.nextBoundary(), .seconds(30))
             }

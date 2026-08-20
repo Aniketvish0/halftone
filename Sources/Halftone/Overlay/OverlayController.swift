@@ -62,7 +62,7 @@ final class OverlayController {
     private func buildPanels() {
         for panel in panels { panel.orderOut(nil); panel.contentView = nil }
         panels = NSScreen.screens.map { screen in
-            OverlayPanel(
+            let panel = OverlayPanel(
                 screen: screen,
                 content: AnyView(
                     BreakOverlayView(
@@ -73,6 +73,8 @@ final class OverlayController {
                     )
                 )
             )
+            panel.onEscape = { [weak self] in self?.engine?.skipBreak() }
+            return panel
         }
     }
 

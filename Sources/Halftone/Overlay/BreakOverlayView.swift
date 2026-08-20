@@ -21,7 +21,7 @@ struct BreakOverlayView: View {
                     .foregroundStyle(.white.opacity(0.95))
                     .shadow(color: .black.opacity(0.25), radius: 12, y: 2)
 
-                Text(timerInterval: Date()...endsAt, countsDown: true)
+                Text(timerInterval: Date()...max(endsAt, Date()), countsDown: true)
                     .font(.system(size: 96, weight: .thin, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.white)
