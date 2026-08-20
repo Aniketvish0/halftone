@@ -55,6 +55,30 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
+        // Live status line (disabled item) when something non-obvious is happening.
+        let statusText: String? = {
+            switch engine.state {
+            case .heldByContext:
+                let reasons = engine.context.holdReasons.map(\.displayName).sorted().joined(separator: ", ")
+                return "Holding: \(reasons.isEmpty ? "recent activity" : reasons)"
+            case .idle: return "Away — time counts as your break"
+            case .offHours: return "Outside office hours"
+            case .pausedByUser(let until):
+                if let until {
+                    let f = DateFormatter(); f.timeStyle = .short
+                    return "Paused until \(f.string(from: until))"
+                }
+                return "Paused"
+            default: return nil
+            }
+        }()
+        if let statusText {
+            let item = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
+
         switch engine.state {
         case .pausedByUser:
             menu.addItem(makeItem("Resume Breaks", #selector(resumeAction), key: "r"))
@@ -136,6 +160,9 @@ struct MenuBarLabel: View {
         case .warning: "circle.lefthalf.filled.inverse"
         case .inBreak: "eye"
         case .pausedByUser: "pause.circle"
+        case .heldByContext: "person.wave.2"   // in a meeting / engaged
+        case .idle: "moon.zzz"
+        case .offHours: "sunset"
         }
     }
 
@@ -151,7 +178,7 @@ struct MenuBarLabel: View {
             return due > now ? now...due : nil
         case .inBreak(_, let endsAt):
             return endsAt > now ? now...endsAt : nil
-        case .pausedByUser:
+        case .pausedByUser, .heldByContext, .idle, .offHours:
             return nil
         }
     }
