@@ -1,54 +1,57 @@
 # Halftone — Architecture
-> A free, native LookAway-superset for macOS 26+.
-> Owner: Aniket. Built with SwiftPM + CLT (no Xcode).
-> Status file. Last verified sweep: 2026-08-20 (pre-v0.0.1).
+> Free, native break reminder for macOS 26+. Owner: Aniket.
+> Built with SwiftPM and Command Line Tools only, no Xcode.
+> Last full test sweep: 2026-08-20, before v0.0.1.
 
 ## 0. Product thesis
-LookAway's moat = automatic context detection (never interrupt a call/meeting/recording)
-+ gentle enforcement + native polish. We replicate the full feature set, then exceed it in:
-1. **Detection engine** — first-class, event-driven, zero-config smart pause (user's #1 ask)
-2. **Ambient pre-break mode** — screen-edge glow / gradual pressure instead of abrupt popups
-3. **Deep stats** — hourly heatmaps, trends, SQLite you can query, CSV export
-4. **Hyper-scriptability** — AppIntents, URL scheme, shell hooks on every event, config file
+What makes LookAway worth $19 is context detection: it never interrupts a
+call, a recording, or a movie. Everything else is a timer with a nice screen.
+So the detection engine is the center of this app, not an add-on. Beyond
+parity, four bets of our own:
+1. Detection engine — event-driven, zero-config, no permission prompts (the #1 requirement)
+2. Ambient pre-break mode — screen-edge glow that ramps up instead of a popup
+3. Deep stats — hourly heatmaps, trends, a SQLite file you can query yourself, CSV export
+4. Scriptability everywhere — AppIntents, URL scheme, shell hooks on every event
 
-Non-goals: iPhone sync, App Store, sandboxing, macOS < 26.
+Non-goals: iPhone sync, App Store, sandboxing, anything below macOS 26.
 
 ## 0.5 Implementation status (v0.0.1 — through Phase 2)
 
-Legend: ✅ done+tested · ☑️ done, works, light testing · ⬜ not built
+Legend: tested = verified against real behavior, not just compiled.
+light = built and working but exercised only once or in code review.
 
-| Feature | Status | How it was tested |
+| Feature | Status | Evidence |
 |---|---|---|
-| Break engine state machine | ✅ | Full lifecycle observed at 1-min intervals; multi-cycle |
-| Menu bar icon + countdown | ✅ | Screenshot-verified render; per-minute label + final-minute live ticker |
-| Menu (break now/pause/resume/settings/quit) | ✅ | Manual + state-dependent items verified |
-| Warning pill (pre-break heads-up) | ✅ | On-screen verified, snooze works, window-server geometry checked |
-| Full-screen overlay, all displays/Spaces | ✅ | On-screen verified incl. over fullscreen; level/behavior via CGWindowList |
-| Skip / Snooze 15m | ✅ | User-confirmed + state transitions observed |
-| Overlay fade + content teardown | ✅ | CPU leak found & fixed; 0.0% post-break re-measured |
-| Settings: intervals/durations/lead/sounds | ✅ | Live re-schedule on change verified |
-| Launch at login (SMAppService) | ☑️ | API wired; needs one logout/login cycle to observe |
-| Session resume across relaunch | ✅ | Due-date identical across kill+relaunch (automated check) |
-| Sleep/wake revalidation | ☑️ | Code path exercised via willSleep/didWake notifications; no overnight soak yet |
-| Smart Pause: mic (calls) | ✅ | Real mic capture -> flag in ~1s -> released |
-| Smart Pause: camera | ✅ | Photo Booth -> flag -> released on quit |
-| Smart Pause: screen share/record | ✅ | Real screencapture -V recording -> on/off observed |
-| Full lifecycle (working→pill→overlay→working) | ✅ | Automated observation over multiple cycles |
-| Toggles apply without restart | ✅ | screenCaptured: OFF -> 0 events, ON -> detected (probe) |
-| Smart Pause: video playing | ✅* | Simulated player (audio+assertion) incl. browser bundle-family match. *Real-app spot-checks pending |
-| Smart Pause: fullscreen | ✅ | False positive (maximized) found & fixed; real fullscreen verified |
-| Smart Pause: focus-app list | ☑️ | Detector + picker built; brief manual check |
-| Per-signal runtime toggles | ✅ | Detectors start/stop live on preference change (probe-verified) |
-| Post-activity linger | ✅ | Hold persisted after mic stopped, released after window |
-| Held break fires after hold clears | ✅ | Probe + state observation |
-| Call mid-break ends break | ☑️ | Code path; not yet provoked in real use |
-| Idle natural breaks + crediting | ✅ | Idle threshold crossing + return observed via probe |
-| Watching video ≠ away | ✅ | Suppression check in probe |
-| Lock/sleep = away | ✅ | Real lock/unlock observed via probe during test |
-| Office hours | ☑️ | Boundary logic unit-style verified; no multi-day soak |
-| Single instance guard | ✅ | Duplicate-launch scenario reproduced & fixed |
-| Energy: 0.0% CPU / 0 wakeups idle | ✅ | top sampling, all detectors enabled, repeated |
-| --probe diagnostics mode | ✅ | Used for all detector verification |
+| Break engine state machine | tested | Full lifecycle observed at 1-min intervals; multi-cycle |
+| Menu bar icon + countdown | tested | Screenshot-verified render; per-minute label + final-minute live ticker |
+| Menu (break now/pause/resume/settings/quit) | tested | Manual + state-dependent items verified |
+| Warning pill (pre-break heads-up) | tested | On-screen verified, snooze works, window-server geometry checked |
+| Full-screen overlay, all displays/Spaces | tested | On-screen verified incl. over fullscreen; level/behavior via CGWindowList |
+| Skip / Snooze 15m | tested | User-confirmed + state transitions observed |
+| Overlay fade + content teardown | tested | CPU leak found & fixed; 0.0% post-break re-measured |
+| Settings: intervals/durations/lead/sounds | tested | Live re-schedule on change verified |
+| Launch at login (SMAppService) | light | API wired; needs one logout/login cycle to observe |
+| Session resume across relaunch | tested | Due-date identical across kill+relaunch (automated check) |
+| Sleep/wake revalidation | light | Code path exercised via willSleep/didWake notifications; no overnight soak yet |
+| Smart Pause: mic (calls) | tested | Real mic capture -> flag in ~1s -> released |
+| Smart Pause: camera | tested | Photo Booth -> flag -> released on quit |
+| Smart Pause: screen share/record | tested | Real screencapture -V recording -> on/off observed |
+| Full lifecycle (working→pill→overlay→working) | tested | Automated observation over multiple cycles |
+| Toggles apply without restart | tested | screenCaptured: OFF -> 0 events, ON -> detected (probe) |
+| Smart Pause: video playing | tested* | Simulated player (audio+assertion) incl. browser bundle-family match. *Real-app spot-checks pending |
+| Smart Pause: fullscreen | tested | False positive (maximized) found & fixed; real fullscreen verified |
+| Smart Pause: focus-app list | light | Detector + picker built; brief manual check |
+| Per-signal runtime toggles | tested | Detectors start/stop live on preference change (probe-verified) |
+| Post-activity linger | tested | Hold persisted after mic stopped, released after window |
+| Held break fires after hold clears | tested | Probe + state observation |
+| Call mid-break ends break | light | Code path; not yet provoked in real use |
+| Idle natural breaks + crediting | tested | Idle threshold crossing + return observed via probe |
+| Watching video ≠ away | tested | Suppression check in probe |
+| Lock/sleep = away | tested | Real lock/unlock observed via probe during test |
+| Office hours | light | Boundary logic unit-style verified; no multi-day soak |
+| Single instance guard | tested | Duplicate-launch scenario reproduced & fixed |
+| Energy: 0.0% CPU / 0 wakeups idle | tested | top sampling, all detectors enabled, repeated |
+| --probe diagnostics mode | tested | Used for all detector verification |
 
 Phase 3+ (not built): ambient pre-break glow, blink/posture, strictness levels,
 custom messages/backgrounds, AppIntents/Shortcuts, shell hooks, planned breaks,
