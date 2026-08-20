@@ -1,14 +1,13 @@
 import Foundation
 
 /// One reason breaks are currently held. Detectors publish sets of these.
-enum ContextFlag: String, CaseIterable, Codable {
+enum ContextFlag: String {
     case micInUse          // some app is capturing the microphone (call/meeting)
     case cameraInUse       // some app is using the camera
     case screenCaptured    // screen is being shared or recorded
     case mediaPlaying      // video/media playback detected
     case fullscreenApp     // frontmost app is fullscreen
     case deepFocusApp      // frontmost app is on the user's hold list
-    case outsideOfficeHours
 
     var displayName: String {
         switch self {
@@ -18,7 +17,6 @@ enum ContextFlag: String, CaseIterable, Codable {
         case .mediaPlaying: "Video playing"
         case .fullscreenApp: "Fullscreen app"
         case .deepFocusApp: "Focus app active"
-        case .outsideOfficeHours: "Outside office hours"
         }
     }
 }

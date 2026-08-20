@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 final class OverlayController {
     private var panels: [OverlayPanel] = []
-    private var rebuildWork: DispatchWorkItem?
+    private let rebuildDebounce = Debouncer(delay: 0.5)
     private weak var engine: BreakEngine?
     private var visible = false
     private var currentKind: BreakKind = .short
@@ -79,16 +79,15 @@ final class OverlayController {
     }
 
     private func screensChanged() {
-        rebuildWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.visible else { return }
-            self.buildPanels()
-            for panel in self.panels {
-                panel.alphaValue = 1
-                panel.orderFrontRegardless()
+        rebuildDebounce.schedule { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.visible else { return }
+                self.buildPanels()
+                for panel in self.panels {
+                    panel.alphaValue = 1
+                    panel.orderFrontRegardless()
+                }
             }
         }
-        rebuildWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 }

@@ -102,13 +102,7 @@ final class DeepFocusAppDetector: ContextDetector {
     }
 
     private func recheck(frontmost: NSRunningApplication?) {
-        let list = Preferences.shared.deepFocusApps
-        let now: Bool
-        if let bid = frontmost?.bundleIdentifier, !list.isEmpty {
-            now = list.contains(bid)
-        } else {
-            now = false
-        }
+        let now = frontmost?.bundleIdentifier.map(Preferences.shared.deepFocusApps.contains) ?? false
         if now != isDetected {
             isDetected = now
             onChange?()

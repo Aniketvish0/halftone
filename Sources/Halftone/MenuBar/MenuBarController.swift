@@ -7,7 +7,6 @@ import SwiftUI
 final class MenuBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let engine: BreakEngine
-    private var hostingView: AutoWidthHostingView<MenuBarLabel>?
 
     init(engine: BreakEngine) {
         self.engine = engine
@@ -38,13 +37,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             }
         }
         if let button = statusItem.button {
-            hosting.frame = NSRect(x: 0, y: 0, width: hosting.fittingSize.width,
-                                   height: button.bounds.height)
+            let width = hosting.fittingSize.width
+            hosting.frame = NSRect(x: 0, y: 0, width: width, height: button.bounds.height)
             hosting.autoresizingMask = [.height]
             button.addSubview(hosting)
-            statusItem.length = hosting.fittingSize.width
+            statusItem.length = width
         }
-        hostingView = hosting
 
         let menu = NSMenu()
         menu.delegate = self
@@ -65,8 +63,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             case .offHours: return "Outside office hours"
             case .pausedByUser(let until):
                 if let until {
-                    let f = DateFormatter(); f.timeStyle = .short
-                    return "Paused until \(f.string(from: until))"
+                    return "Paused until \(until.formatted(date: .omitted, time: .shortened))"
                 }
                 return "Paused"
             default: return nil
@@ -115,10 +112,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 /// letting the owner keep NSStatusItem.length in sync with dynamic content.
 final class AutoWidthHostingView<V: View>: NSHostingView<V> {
     var onWidthChange: ((CGFloat) -> Void)?
+    private var lastWidth: CGFloat = 0
 
     override func layout() {
         super.layout()
+        // fittingSize is a full SwiftUI measurement pass, and both the frame
+        // write and the length callback re-dirty layout — only act on change.
         let width = fittingSize.width
+        guard abs(width - lastWidth) > 0.5 else { return }
+        lastWidth = width
         frame.size.width = width
         onWidthChange?(width)
     }
@@ -151,13 +153,14 @@ struct MenuBarLabel: View {
                 // (0.3-0.4% CPU). So render "18m" via a once-a-minute timeline
                 // while >60s remain; the live ticker only in the final minute.
                 TimelineView(.periodic(from: .now, by: 60)) { context in
-                    if range.upperBound.timeIntervalSince(context.date) > 60 {
-                        Text(minutesLabel(until: range.upperBound, from: context.date))
-                            .font(.system(size: 11.5, weight: .medium).monospacedDigit())
-                    } else {
-                        Text(timerInterval: range, countsDown: true, showsHours: false)
-                            .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                    Group {
+                        if range.upperBound.timeIntervalSince(context.date) > 60 {
+                            Text(minutesLabel(until: range.upperBound, from: context.date))
+                        } else {
+                            Text(timerInterval: range, countsDown: true, showsHours: false)
+                        }
                     }
+                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
                 }
             }
         }
@@ -193,11 +196,9 @@ struct MenuBarLabel: View {
     private var countdownRange: ClosedRange<Date>? {
         let now = Date()
         switch engine.state {
-        case .working(let due, _), .warning(let due, _):
-            return due > now ? now...due : nil
-        case .inBreak(_, let endsAt):
-            return endsAt > now ? now...endsAt : nil
-        case .pausedByUser, .heldByContext, .idle, .offHours:
+        case .working(let end, _), .warning(let end, _), .inBreak(_, let end):
+            return end > now ? now...end : nil
+        default:
             return nil
         }
     }

@@ -13,8 +13,8 @@ final class IdleMonitor {
     /// Consulted before declaring idle (e.g. media playing = not away).
     var isSuppressed: (() -> Bool)?
 
-    private(set) var isIdle = false
     private var idleStartedAt: Date?
+    var isIdle: Bool { idleStartedAt != nil }
     private var timer: DispatchSourceTimer?
     private var running = false
 
@@ -36,26 +36,26 @@ final class IdleMonitor {
     func stop() {
         running = false
         timer?.cancel(); timer = nil
-        isIdle = false
         idleStartedAt = nil
     }
 
     private func scheduleNextCheck() {
         guard running else { return }
-        timer?.cancel()
 
         let idle = Self.secondsSinceLastInput()
 
-        if isIdle {
+        if let start = idleStartedAt {
             if idle < 2 {
                 // User is back.
-                let away = idleStartedAt.map { Date().timeIntervalSince($0) } ?? idle
-                isIdle = false
                 idleStartedAt = nil
-                onReturned?(away)
+                onReturned?(Date().timeIntervalSince(start))
                 arm(after: max(1, threshold - idle), leeway: .seconds(5))
             } else {
-                arm(after: 2, leeway: .seconds(1)) // poll for return
+                // Poll for return: 2s while freshly away (coffee refill),
+                // backing off to 10s for long absences (away accuracy comes
+                // from idleStartedAt, so the only cost is return latency).
+                let awayFor = Date().timeIntervalSince(start)
+                arm(after: awayFor < 60 ? 2 : 10, leeway: .seconds(2))
             }
         } else if idle >= threshold {
             if isSuppressed?() ?? false {
@@ -65,7 +65,6 @@ final class IdleMonitor {
                 // suppression ending matters within ~30s, not within 1s.
                 arm(after: 30, leeway: .seconds(10))
             } else {
-                isIdle = true
                 idleStartedAt = Date().addingTimeInterval(-idle)
                 onWentIdle?()
                 arm(after: 2, leeway: .seconds(1))
@@ -77,10 +76,14 @@ final class IdleMonitor {
     }
 
     private func arm(after delay: TimeInterval, leeway: DispatchTimeInterval) {
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + delay, leeway: leeway)
-        t.setEventHandler { [weak self] in self?.scheduleNextCheck() }
-        t.resume()
-        timer = t
+        if let timer {
+            timer.schedule(deadline: .now() + delay, leeway: leeway)
+        } else {
+            let t = DispatchSource.makeTimerSource(queue: .main)
+            t.schedule(deadline: .now() + delay, leeway: leeway)
+            t.setEventHandler { [weak self] in self?.scheduleNextCheck() }
+            t.resume()
+            timer = t
+        }
     }
 }

@@ -157,18 +157,20 @@ struct DeepFocusAppList: View {
 
     private func runningApps() -> [NSRunningApplication] {
         NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil }
-            .filter { !prefs.deepFocusApps.contains($0.bundleIdentifier!) }
+            .filter { app in
+                guard app.activationPolicy == .regular,
+                      let bid = app.bundleIdentifier else { return false }
+                return !prefs.deepFocusApps.contains(bid)
+            }
             .sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
     }
 
     private func appName(for bid: String) -> String {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid),
-           let name = Bundle(url: url)?.localizedInfoDictionary?["CFBundleDisplayName"] as? String
-            ?? Bundle(url: url)?.infoDictionary?["CFBundleName"] as? String {
-            return name
-        }
-        return bid
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid),
+              let bundle = Bundle(url: url) else { return bid }
+        return bundle.localizedInfoDictionary?["CFBundleDisplayName"] as? String
+            ?? bundle.infoDictionary?["CFBundleName"] as? String
+            ?? bid
     }
 }
 

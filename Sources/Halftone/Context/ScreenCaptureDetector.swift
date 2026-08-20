@@ -44,10 +44,8 @@ final class ScreenCaptureDetector: ContextDetector {
         let now: Bool
         if let fn = Self.isWatcherPresent {
             now = fn()
-        } else if let dict = CGSessionCopyCurrentDictionary() as? [String: Any] {
-            now = (dict["CGSSessionScreenIsShared"] as? Bool) ?? false
         } else {
-            now = false
+            now = CGSession.flag("CGSSessionScreenIsShared")
         }
         if now != isDetected {
             isDetected = now

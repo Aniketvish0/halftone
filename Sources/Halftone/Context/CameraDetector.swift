@@ -13,10 +13,16 @@ final class CameraDetector: ContextDetector {
     private var running = false
     private let queue = DispatchQueue(label: "halftone.camera-monitor", qos: .utility)
     private var listenedDevices: [CMIOObjectID] = []
-    private var debounce: DispatchWorkItem?
+    private let debounce = Debouncer(delay: 0.4)
 
     private lazy var listener: CMIOObjectPropertyListenerBlock = { [weak self] _, _ in
-        self?.scheduleRecheck()
+        self?.debounce.schedule {
+            MainActor.assumeIsolated {
+                guard let self, self.running else { return }
+                self.rebuildDeviceListeners()
+                self.recheck()
+            }
+        }
     }
 
     private var runningAddr = CMIOObjectPropertyAddress(
@@ -47,22 +53,8 @@ final class CameraDetector: ContextDetector {
             CMIOObjectRemovePropertyListenerBlock(dev, &runningAddr, queue, listener)
         }
         listenedDevices = []
+        debounce.cancel()
         isDetected = false
-    }
-
-    private nonisolated func scheduleRecheck() {
-        Task { @MainActor in
-            self.debounce?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self, self.running else { return }
-                    self.rebuildDeviceListeners()
-                    self.recheck()
-                }
-            }
-            self.debounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
-        }
     }
 
     private func devices() -> [CMIOObjectID] {
@@ -94,8 +86,7 @@ final class CameraDetector: ContextDetector {
         for dev in listenedDevices {
             var value: UInt32 = 0
             var used: UInt32 = 0
-            var addr = runningAddr
-            if CMIOObjectGetPropertyData(dev, &addr, 0, nil,
+            if CMIOObjectGetPropertyData(dev, &runningAddr, 0, nil,
                 UInt32(MemoryLayout<UInt32>.size), &used, &value) == noErr, value != 0 {
                 any = true
                 break

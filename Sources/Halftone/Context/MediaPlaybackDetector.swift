@@ -64,8 +64,6 @@ final class MediaPlaybackDetector: ContextDetector {
         let audioBundles = AudioProcessMonitor.shared.bundleIDs
             .filter { outputPIDs.contains($0.key) }
             .values
-        guard !audioBundles.isEmpty else { return false }
-
         for pid in displaySleepPIDs {
             guard let holder = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
             else { continue }

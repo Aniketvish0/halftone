@@ -9,7 +9,7 @@ final class Preferences {
     static let shared = Preferences()
     static let changed = Notification.Name("HalftonePreferencesChanged")
 
-    private let d = UserDefaults.standard
+    private let d = Defaults.store
 
     private init() {
         d.register(defaults: [
@@ -82,40 +82,51 @@ final class Preferences {
         static let deepFocusApps = "deepFocusApps"
     }
 
-    var shortIntervalMin: Int = 20 { didSet { save(Key.shortIntervalMin, shortIntervalMin) } }
-    var shortDurationSec: Int = 20 { didSet { save(Key.shortDurationSec, shortDurationSec) } }
-    var longIntervalMin: Int = 60 { didSet { save(Key.longIntervalMin, longIntervalMin) } }
-    var longDurationSec: Int = 300 { didSet { save(Key.longDurationSec, longDurationSec) } }
-    var warnLeadSec: Int = 30 { didSet { save(Key.warnLeadSec, warnLeadSec) } }
-    var playSounds: Bool = true { didSet { save(Key.playSounds, playSounds) } }
-    var showCountdownInMenuBar: Bool = true { didSet { save(Key.showCountdownInMenuBar, showCountdownInMenuBar) } }
+    var shortIntervalMin: Int { didSet { save(Key.shortIntervalMin, shortIntervalMin) } }
+    var shortDurationSec: Int { didSet { save(Key.shortDurationSec, shortDurationSec) } }
+    var longIntervalMin: Int { didSet { save(Key.longIntervalMin, longIntervalMin) } }
+    var longDurationSec: Int { didSet { save(Key.longDurationSec, longDurationSec) } }
+    var warnLeadSec: Int { didSet { save(Key.warnLeadSec, warnLeadSec) } }
+    var playSounds: Bool { didSet { save(Key.playSounds, playSounds) } }
+    var showCountdownInMenuBar: Bool { didSet { save(Key.showCountdownInMenuBar, showCountdownInMenuBar) } }
 
     // Smart Pause — each signal individually toggleable at runtime
-    var pauseOnMic: Bool = true { didSet { save(Key.pauseOnMic, pauseOnMic) } }
-    var pauseOnCamera: Bool = true { didSet { save(Key.pauseOnCamera, pauseOnCamera) } }
-    var pauseOnScreenCapture: Bool = true { didSet { save(Key.pauseOnScreenCapture, pauseOnScreenCapture) } }
-    var pauseOnMedia: Bool = true { didSet { save(Key.pauseOnMedia, pauseOnMedia) } }
-    var pauseOnFullscreen: Bool = true { didSet { save(Key.pauseOnFullscreen, pauseOnFullscreen) } }
-    var pauseOnDeepFocusApps: Bool = true { didSet { save(Key.pauseOnDeepFocusApps, pauseOnDeepFocusApps) } }
+    var pauseOnMic: Bool { didSet { save(Key.pauseOnMic, pauseOnMic) } }
+    var pauseOnCamera: Bool { didSet { save(Key.pauseOnCamera, pauseOnCamera) } }
+    var pauseOnScreenCapture: Bool { didSet { save(Key.pauseOnScreenCapture, pauseOnScreenCapture) } }
+    var pauseOnMedia: Bool { didSet { save(Key.pauseOnMedia, pauseOnMedia) } }
+    var pauseOnFullscreen: Bool { didSet { save(Key.pauseOnFullscreen, pauseOnFullscreen) } }
+    var pauseOnDeepFocusApps: Bool { didSet { save(Key.pauseOnDeepFocusApps, pauseOnDeepFocusApps) } }
     /// After a pause condition clears, hold breaks this much longer.
-    var contextLingerSec: Int = 60 { didSet { save(Key.contextLingerSec, contextLingerSec) } }
+    var contextLingerSec: Int { didSet { save(Key.contextLingerSec, contextLingerSec) } }
 
     // Idle / natural breaks
-    var idleEnabled: Bool = true { didSet { save(Key.idleEnabled, idleEnabled) } }
-    var idleThresholdSec: Int = 180 { didSet { save(Key.idleThresholdSec, idleThresholdSec) } }
+    var idleEnabled: Bool { didSet { save(Key.idleEnabled, idleEnabled) } }
+    var idleThresholdSec: Int { didSet { save(Key.idleThresholdSec, idleThresholdSec) } }
 
     // Office hours
-    var officeHoursEnabled: Bool = false { didSet { save(Key.officeHoursEnabled, officeHoursEnabled) } }
-    var officeStartMin: Int = 540 { didSet { save(Key.officeStartMin, officeStartMin) } }
-    var officeEndMin: Int = 1080 { didSet { save(Key.officeEndMin, officeEndMin) } }
-    var officeDays: Set<Int> = [2,3,4,5,6] { didSet { save(Key.officeDays, Array(officeDays)) } }
+    var officeHoursEnabled: Bool { didSet { save(Key.officeHoursEnabled, officeHoursEnabled) } }
+    var officeStartMin: Int { didSet { save(Key.officeStartMin, officeStartMin) } }
+    var officeEndMin: Int { didSet { save(Key.officeEndMin, officeEndMin) } }
+    var officeDays: Set<Int> { didSet { save(Key.officeDays, Array(officeDays)) } }
 
     // Deep-focus apps (bundle IDs that hold breaks while frontmost)
-    var deepFocusApps: Set<String> = [] { didSet { save(Key.deepFocusApps, Array(deepFocusApps)) } }
+    var deepFocusApps: Set<String> { didSet { save(Key.deepFocusApps, Array(deepFocusApps)) } }
 
+    private var postPending = false
+
+    /// Writes and posts one coalesced change notification per runloop turn.
+    /// SwiftUI bindings write unconditionally and Steppers auto-repeat at
+    /// ~10 Hz; without the guard+coalesce every tick sweeps all detectors
+    /// and re-persists the engine snapshot.
     private func save(_ key: String, _ value: Any) {
         d.set(value, forKey: key)
-        NotificationCenter.default.post(name: Self.changed, object: nil)
+        guard !postPending else { return }
+        postPending = true
+        DispatchQueue.main.async { [weak self] in
+            self?.postPending = false
+            NotificationCenter.default.post(name: Self.changed, object: nil)
+        }
     }
 
     // Derived intervals as TimeInterval

@@ -27,16 +27,16 @@ final class ContextEngine {
 
     private var lingerTimer: DispatchSourceTimer?
 
-    private var all: [(detector: any ContextDetector, enabled: () -> Bool)] {
-        [
-            (mic, { self.prefs.pauseOnMic }),
-            (camera, { self.prefs.pauseOnCamera }),
-            (screenCapture, { self.prefs.pauseOnScreenCapture }),
-            (media, { self.prefs.pauseOnMedia }),
-            (fullscreen, { self.prefs.pauseOnFullscreen }),
-            (deepFocus, { self.prefs.pauseOnDeepFocusApps }),
-        ]
-    }
+    /// Built once: detector paired with the preference that enables it.
+    @ObservationIgnored
+    private lazy var all: [(detector: any ContextDetector, enabled: KeyPath<Preferences, Bool>)] = [
+        (mic, \.pauseOnMic),
+        (camera, \.pauseOnCamera),
+        (screenCapture, \.pauseOnScreenCapture),
+        (media, \.pauseOnMedia),
+        (fullscreen, \.pauseOnFullscreen),
+        (deepFocus, \.pauseOnDeepFocusApps),
+    ]
 
     init() {
         for (detector, _) in all {
@@ -54,7 +54,7 @@ final class ContextEngine {
     /// every preference change so toggles take effect immediately.
     private func applyToggles() {
         for (detector, enabled) in all {
-            if enabled() { detector.start() } else { detector.stop() }
+            if prefs[keyPath: enabled] { detector.start() } else { detector.stop() }
         }
         deepFocus.listChanged() // hold-list edits apply immediately too
         recompute()
@@ -62,12 +62,10 @@ final class ContextEngine {
 
     private func recompute() {
         var flags: Set<ContextFlag> = []
-        for (detector, enabled) in all where enabled() && detector.isDetected {
+        for (detector, enabled) in all where prefs[keyPath: enabled] && detector.isDetected {
             flags.insert(detector.flag)
         }
         guard flags != activeFlags else { return }
-
-        let hadFlags = !activeFlags.isEmpty
         activeFlags = flags
 
         if !flags.isEmpty {
@@ -75,12 +73,9 @@ final class ContextEngine {
             lingerTimer?.cancel(); lingerTimer = nil
             holdReasons = flags
             setHold(true)
-        } else if hadFlags {
-            // Conditions just cleared: keep holding through the linger window.
+        } else {
+            // guard above means hadFlags: keep holding through the linger.
             startLinger()
-        } else if lingerTimer == nil {
-            holdReasons = []
-            setHold(false)
         }
     }
 
@@ -108,11 +103,7 @@ final class ContextEngine {
     }
 
     private func setHold(_ hold: Bool) {
-        guard hold != shouldHold else {
-            onChange?() // reasons may have changed even if hold didn't
-            return
-        }
-        shouldHold = hold
-        onChange?()
+        if hold != shouldHold { shouldHold = hold }
+        onChange?() // reasons may change even when hold doesn't
     }
 }

@@ -36,15 +36,13 @@ final class AudioProcessMonitor {
 
     private var started = false
     private let queue = DispatchQueue(label: "halftone.audio-monitor", qos: .utility)
-    private var listedObjects: [AudioObjectID] = []
-    private var debounce: DispatchWorkItem?
+    private var listedObjects: Set<AudioObjectID> = []
+    private let debounce = Debouncer(delay: 0.3)
 
-    private var systemListenerInstalled = false
-    private lazy var listListener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-        self?.scheduleRefresh()
-    }
-    private lazy var stateListener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-        self?.scheduleRefresh()
+    private lazy var listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+        self?.debounce.schedule {
+            MainActor.assumeIsolated { self?.refresh() }
+        }
     }
 
     private var listAddr = AudioObjectPropertyAddress(
@@ -77,41 +75,34 @@ final class AudioProcessMonitor {
         guard !started else { return }
         started = true
         AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject), &listAddr, queue, listListener)
-        systemListenerInstalled = true
+            AudioObjectID(kAudioObjectSystemObject), &listAddr, queue, listener)
         refresh()
     }
 
     private func stop() {
         guard started else { return }
         started = false
-        if systemListenerInstalled {
-            AudioObjectRemovePropertyListenerBlock(
-                AudioObjectID(kAudioObjectSystemObject), &listAddr, queue, listListener)
-            systemListenerInstalled = false
-        }
-        detachObjectListeners()
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &listAddr, queue, listener)
+        debounce.cancel()
+        syncObjectListeners(to: [])
         micPIDs = []; outputPIDs = []
         notify()
     }
 
-    private func detachObjectListeners() {
-        for obj in listedObjects {
-            AudioObjectRemovePropertyListenerBlock(obj, &inputAddr, queue, stateListener)
-            AudioObjectRemovePropertyListenerBlock(obj, &outputAddr, queue, stateListener)
+    /// Diffs listener registrations against the fresh object list. The naive
+    /// remove-all/re-add-all costs 4 coreaudiod round-trips per object per
+    /// refresh (hundreds during a call); the diff is zero in steady state.
+    private func syncObjectListeners(to objects: Set<AudioObjectID>) {
+        for obj in listedObjects.subtracting(objects) {
+            AudioObjectRemovePropertyListenerBlock(obj, &inputAddr, queue, listener)
+            AudioObjectRemovePropertyListenerBlock(obj, &outputAddr, queue, listener)
         }
-        listedObjects = []
-    }
-
-    private nonisolated func scheduleRefresh() {
-        Task { @MainActor in
-            self.debounce?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                MainActor.assumeIsolated { self?.refresh() }
-            }
-            self.debounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        for obj in objects.subtracting(listedObjects) {
+            AudioObjectAddPropertyListenerBlock(obj, &inputAddr, queue, listener)
+            AudioObjectAddPropertyListenerBlock(obj, &outputAddr, queue, listener)
         }
+        listedObjects = objects
     }
 
     private func refresh() {
@@ -128,29 +119,26 @@ final class AudioProcessMonitor {
             AudioObjectID(kAudioObjectSystemObject), &listAddr, 0, nil, &size, &objects) == noErr
         else { return }
 
-        // 2. Re-install per-object listeners on the fresh list
-        detachObjectListeners()
-        for obj in objects {
-            AudioObjectAddPropertyListenerBlock(obj, &inputAddr, queue, stateListener)
-            AudioObjectAddPropertyListenerBlock(obj, &outputAddr, queue, stateListener)
-        }
-        listedObjects = objects
+        // 2. Diff per-object listeners against the fresh list
+        syncObjectListeners(to: Set(objects))
 
-        // 3. Read state
+        // 3. Read state. Flags first: bundle ID is a CFString allocation and
+        // only matters for the 0-3 objects actually running.
         let ownPID = ProcessInfo.processInfo.processIdentifier
         var newMic: Set<pid_t> = []
         var newOut: Set<pid_t> = []
         var newBundles: [pid_t: String] = [:]
         for obj in objects {
+            let inp = readFlag(obj, &inputAddr)
+            let out = readFlag(obj, &outputAddr)
+            guard inp || out else { continue }
             let pid = readPID(obj)
             guard pid > 0, pid != ownPID else { continue }
             let bid = readBundleID(obj)
             if let bid, ignoredBundlePrefixes.contains(where: { bid.hasPrefix($0) }) { continue }
-            let inp = readFlag(obj, &inputAddr)
-            let out = readFlag(obj, &outputAddr)
             if inp { newMic.insert(pid) }
             if out { newOut.insert(pid) }
-            if (inp || out), let bid { newBundles[pid] = bid }
+            if let bid { newBundles[pid] = bid }
         }
 
         if newMic != micPIDs || newOut != outputPIDs {
