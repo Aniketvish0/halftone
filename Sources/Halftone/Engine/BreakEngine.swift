@@ -33,6 +33,10 @@ final class BreakEngine {
     /// Long-break cadence: every Nth completed short-cycle becomes a long break.
     private var shortBreaksSinceLong = 0
 
+    /// Time left on the countdown when the user paused, so resume continues
+    /// where they stopped instead of restarting the full interval.
+    private var pausedRemaining: (kind: BreakKind, remaining: TimeInterval)?
+
     private let prefs = Preferences.shared
     private var timer: DispatchSourceTimer?
 
@@ -192,12 +196,26 @@ final class BreakEngine {
     func pause(for duration: TimeInterval? = nil) {
         warningPill?.hide()
         overlayController?.hide()
+        switch state {
+        case .working(let due, let kind), .warning(let due, let kind):
+            pausedRemaining = (kind, max(30, due.timeIntervalSinceNow))
+        case .heldByContext(let kind, _):
+            pausedRemaining = (kind, 30)
+        default:
+            pausedRemaining = nil
+        }
         let until = duration.map { Date().addingTimeInterval($0) }
         transition(.pausedByUser(until: until))
     }
 
     func resume() {
-        scheduleNextBreak(from: Date())
+        if let paused = pausedRemaining {
+            pausedRemaining = nil
+            transition(.working(nextBreakAt: Date().addingTimeInterval(paused.remaining),
+                                kind: paused.kind))
+        } else {
+            scheduleNextBreak(from: Date())
+        }
     }
 
     func startBreakNow(kind: BreakKind = .short) {
@@ -233,6 +251,13 @@ final class BreakEngine {
     }
 
     private func enterWarning(breakAt: Date, kind: BreakKind) {
+        // A hold that's already active when the warning moment arrives must
+        // suppress the pill too, not just the break (contextChanged only
+        // catches holds that *begin* during the warning).
+        if context.shouldHold {
+            transition(.heldByContext(kind: kind, overdueSince: breakAt))
+            return
+        }
         transition(.warning(breakAt: breakAt, kind: kind))
         warningPill?.show(breakAt: breakAt)
     }
@@ -311,7 +336,7 @@ final class BreakEngine {
         case .inBreak(_, let endsAt):
             if now >= endsAt { endBreak(completed: true) } else { armTimer() }
         case .pausedByUser(let until):
-            if let until, now >= until { scheduleNextBreak(from: now) } else { armTimer() }
+            if let until, now >= until { resume() } else { armTimer() }
         case .heldByContext:
             if !context.shouldHold { contextChanged() } else { armTimer() }
         case .idle:
@@ -389,7 +414,7 @@ final class BreakEngine {
         case .inBreak(_, let endsAt):
             if now >= endsAt { endBreak(completed: true) } else { armTimer() }
         case .pausedByUser(let until):
-            if let until, now >= until { scheduleNextBreak(from: now) } else { armTimer() }
+            if let until, now >= until { resume() } else { armTimer() }
         case .heldByContext, .idle:
             break
         case .offHours:
