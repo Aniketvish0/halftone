@@ -136,17 +136,6 @@ struct MenuBarLabel: View {
             Image(systemName: symbolName)
                 .symbolRenderingMode(.hierarchical)
                 .font(.system(size: 13, weight: .medium))
-                .overlay(alignment: .topTrailing) {
-                    // Live "I see your call" indicator: a small dot whenever a
-                    // hold condition is detected, even mid-countdown, so a
-                    // ticking timer during a meeting reads as safe, not armed.
-                    if engine.context.shouldHold, showsDot {
-                        Circle()
-                            .fill(.orange)
-                            .frame(width: 5, height: 5)
-                            .offset(x: 2, y: -1)
-                    }
-                }
 
             if Preferences.shared.showCountdownInMenuBar, let range = countdownRange {
                 // Energy: per-second ticking redraws our status window ~3x/s
@@ -168,21 +157,16 @@ struct MenuBarLabel: View {
         .frame(maxHeight: .infinity)
     }
 
-    /// The dot is redundant when the icon itself already means "held".
-    private var showsDot: Bool {
-        switch engine.state {
-        case .working, .warning: true
-        default: false
-        }
-    }
-
     private var symbolName: String {
+        // A detected call/hold shows the person icon immediately, even while
+        // the countdown is still running — "I see your meeting, the break
+        // will wait" must be visible before the break is due, not only after.
         switch engine.state {
-        case .working: "circle.lefthalf.filled"
-        case .warning: "circle.lefthalf.filled.inverse"
+        case .working, .warning:
+            engine.context.shouldHold ? "person.wave.2" : "circle.lefthalf.filled"
         case .inBreak: "eye"
         case .pausedByUser: "pause.circle"
-        case .heldByContext: "person.wave.2"   // in a meeting / engaged
+        case .heldByContext: "person.wave.2"
         case .idle: "moon.zzz"
         case .offHours: "sunset"
         }
