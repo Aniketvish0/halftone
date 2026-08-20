@@ -1,6 +1,7 @@
-# Halftone Breaks — Architecture (working draft)
-> Name TBD. A free, native, personal LookAway-superset for macOS 26+.
-> Owner: Aniket. Built with SwiftPM + CLT (no Xcode). Verified 2026-08-20.
+# Halftone — Architecture
+> A free, native LookAway-superset for macOS 26+.
+> Owner: Aniket. Built with SwiftPM + CLT (no Xcode).
+> Status file. Last verified sweep: 2026-08-20 (pre-v0.0.1).
 
 ## 0. Product thesis
 LookAway's moat = automatic context detection (never interrupt a call/meeting/recording)
@@ -11,6 +12,47 @@ LookAway's moat = automatic context detection (never interrupt a call/meeting/re
 4. **Hyper-scriptability** — AppIntents, URL scheme, shell hooks on every event, config file
 
 Non-goals: iPhone sync, App Store, sandboxing, macOS < 26.
+
+## 0.5 Implementation status (v0.0.1 — through Phase 2)
+
+Legend: ✅ done+tested · ☑️ done, works, light testing · ⬜ not built
+
+| Feature | Status | How it was tested |
+|---|---|---|
+| Break engine state machine | ✅ | Full lifecycle observed at 1-min intervals; multi-cycle |
+| Menu bar icon + countdown | ✅ | Screenshot-verified render; per-minute label + final-minute live ticker |
+| Menu (break now/pause/resume/settings/quit) | ✅ | Manual + state-dependent items verified |
+| Warning pill (pre-break heads-up) | ✅ | On-screen verified, snooze works, window-server geometry checked |
+| Full-screen overlay, all displays/Spaces | ✅ | On-screen verified incl. over fullscreen; level/behavior via CGWindowList |
+| Skip / Snooze 15m | ✅ | User-confirmed + state transitions observed |
+| Overlay fade + content teardown | ✅ | CPU leak found & fixed; 0.0% post-break re-measured |
+| Settings: intervals/durations/lead/sounds | ✅ | Live re-schedule on change verified |
+| Launch at login (SMAppService) | ☑️ | API wired; needs one logout/login cycle to observe |
+| Session resume across relaunch | ✅ | Due-date identical across kill+relaunch (automated check) |
+| Sleep/wake revalidation | ☑️ | Code path exercised via willSleep/didWake notifications; no overnight soak yet |
+| Smart Pause: mic (calls) | ✅ | Real mic capture -> flag in ~1s -> released |
+| Smart Pause: camera | ✅ | Photo Booth -> flag -> released on quit |
+| Smart Pause: screen share/record | ✅ | Real screencapture -V recording -> on/off observed |
+| Full lifecycle (working→pill→overlay→working) | ✅ | Automated observation over multiple cycles |
+| Toggles apply without restart | ✅ | screenCaptured: OFF -> 0 events, ON -> detected (probe) |
+| Smart Pause: video playing | ✅* | Simulated player (audio+assertion) incl. browser bundle-family match. *Real-app spot-checks pending |
+| Smart Pause: fullscreen | ✅ | False positive (maximized) found & fixed; real fullscreen verified |
+| Smart Pause: focus-app list | ☑️ | Detector + picker built; brief manual check |
+| Per-signal runtime toggles | ✅ | Detectors start/stop live on preference change (probe-verified) |
+| Post-activity linger | ✅ | Hold persisted after mic stopped, released after window |
+| Held break fires after hold clears | ✅ | Probe + state observation |
+| Call mid-break ends break | ☑️ | Code path; not yet provoked in real use |
+| Idle natural breaks + crediting | ✅ | Idle threshold crossing + return observed via probe |
+| Watching video ≠ away | ✅ | Suppression check in probe |
+| Lock/sleep = away | ✅ | Real lock/unlock observed via probe during test |
+| Office hours | ☑️ | Boundary logic unit-style verified; no multi-day soak |
+| Single instance guard | ✅ | Duplicate-launch scenario reproduced & fixed |
+| Energy: 0.0% CPU / 0 wakeups idle | ✅ | top sampling, all detectors enabled, repeated |
+| --probe diagnostics mode | ✅ | Used for all detector verification |
+
+Phase 3+ (not built): ambient pre-break glow, blink/posture, strictness levels,
+custom messages/backgrounds, AppIntents/Shortcuts, shell hooks, planned breaks,
+stats/GRDB, website stats, lock-screen countdown.
 
 ## 1. Feature matrix (parity target = LookAway 2.4.1)
 | Area | LookAway | Ours (target phase) |
