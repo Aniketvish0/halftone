@@ -1,7 +1,7 @@
 # Halftone — Architecture
 > Free, native break reminder for macOS 26+. Owner: Aniket.
 > Built with SwiftPM and Command Line Tools only, no Xcode.
-> Last full test sweep: 2026-08-20, before v0.0.1.
+> Last full sweep: 2026-08-21, v0.0.2 (31-test suite + 2 review rounds + runtime measurement).
 
 ## 0. Product thesis
 What makes LookAway worth $19 is context detection: it never interrupts a
@@ -15,7 +15,7 @@ parity, four bets of our own:
 
 Non-goals: iPhone sync, App Store, sandboxing, anything below macOS 26.
 
-## 0.5 Implementation status (v0.0.1 — through Phase 2)
+## 0.5 Implementation status (v0.0.2, through Phase 2)
 
 Legend: tested = verified against real behavior, not just compiled.
 light = built and working but exercised only once or in code review.
