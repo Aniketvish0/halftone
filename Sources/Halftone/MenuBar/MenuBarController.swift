@@ -59,6 +59,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             case .heldByContext:
                 let reasons = engine.context.holdReasons.map(\.displayName).sorted().joined(separator: ", ")
                 return "Holding: \(reasons.isEmpty ? "recent activity" : reasons)"
+            case .working, .warning where engine.context.shouldHold:
+                if engine.context.shouldHold {
+                    let reasons = engine.context.holdReasons.map(\.displayName).sorted().joined(separator: ", ")
+                    return "Will hold: \(reasons.isEmpty ? "recent activity" : reasons)"
+                }
+                return nil
             case .idle: return "Away — time counts as your break"
             case .offHours: return "Outside office hours"
             case .pausedByUser(let until):
@@ -157,16 +163,25 @@ struct MenuBarLabel: View {
         .frame(maxHeight: .infinity)
     }
 
+    /// Icon for the strongest active hold reason: person = call, record badge
+    /// = screen share, video = camera, play = video watching, etc. Mapping
+    /// every reason to the call icon made "watching YouTube" read as the app
+    /// wrongly claiming a call.
+    private var holdSymbol: String {
+        engine.context.holdReasons.min(by: { $0.priority < $1.priority })?.symbolName
+            ?? "person.wave.2"
+    }
+
     private var symbolName: String {
-        // A detected call/hold shows the person icon immediately, even while
-        // the countdown is still running — "I see your meeting, the break
+        // A detected hold shows its reason icon immediately, even while the
+        // countdown is still running — "I see what you're doing, the break
         // will wait" must be visible before the break is due, not only after.
         switch engine.state {
         case .working, .warning:
-            engine.context.shouldHold ? "person.wave.2" : "circle.lefthalf.filled"
+            engine.context.shouldHold ? holdSymbol : "circle.lefthalf.filled"
         case .inBreak: "eye"
         case .pausedByUser: "pause.circle"
-        case .heldByContext: "person.wave.2"
+        case .heldByContext: holdSymbol
         case .idle: "moon.zzz"
         case .offHours: "sunset"
         }

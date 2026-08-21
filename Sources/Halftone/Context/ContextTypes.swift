@@ -19,6 +19,32 @@ enum ContextFlag: String {
         case .deepFocusApp: "Focus app active"
         }
     }
+
+    /// Menu bar symbol for this hold reason. When several reasons are active
+    /// the highest-priority one (call > share > camera > media > fullscreen
+    /// > focus app) decides the icon.
+    var symbolName: String {
+        switch self {
+        case .micInUse: "person.wave.2"
+        case .cameraInUse: "video"
+        case .screenCaptured: "rectangle.badge.record"
+        case .mediaPlaying: "play.rectangle"
+        case .fullscreenApp: "arrow.up.left.and.arrow.down.right"
+        case .deepFocusApp: "scope"
+        }
+    }
+
+    /// Priority for picking the icon when multiple reasons hold at once.
+    var priority: Int {
+        switch self {
+        case .micInUse: 0
+        case .screenCaptured: 1
+        case .cameraInUse: 2
+        case .mediaPlaying: 3
+        case .fullscreenApp: 4
+        case .deepFocusApp: 5
+        }
+    }
 }
 
 /// A single detection source. Detectors are cheap to start/stop so the user

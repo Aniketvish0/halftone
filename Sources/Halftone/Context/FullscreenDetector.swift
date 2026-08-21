@@ -13,6 +13,7 @@ final class FullscreenDetector: ContextDetector {
     private(set) var isDetected = false
 
     private var tokens: [NSObjectProtocol] = []
+    private var verifyTimer: DispatchSourceTimer?
 
     func start() {
         guard tokens.isEmpty else { return }
@@ -20,7 +21,15 @@ final class FullscreenDetector: ContextDetector {
         for name in [NSWorkspace.activeSpaceDidChangeNotification,
                      NSWorkspace.didActivateApplicationNotification] {
             tokens.append(wsnc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.recheck() }
+                MainActor.assumeIsolated {
+                    self?.recheck()
+                    // Fullscreen exit animates; geometry read at the event can
+                    // still see the old full-frame bounds. Re-read after it
+                    // settles so a stale reading can't stick.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self?.recheck()
+                    }
+                }
             })
         }
         recheck()
@@ -30,15 +39,35 @@ final class FullscreenDetector: ContextDetector {
         let wsnc = NSWorkspace.shared.notificationCenter
         for t in tokens { wsnc.removeObserver(t) }
         tokens = []
+        stopVerify()
         isDetected = false
     }
 
     private func recheck() {
+        guard !tokens.isEmpty else { return }
         let now = Self.frontmostIsFullscreen()
         if now != isDetected {
             isDetected = now
             onChange?()
         }
+        // A wrongly-true flag holds breaks forever with no event to fix it.
+        // While the flag is on, cheaply re-verify every 5s; the timer exists
+        // only in that state, so the normal case stays event-driven.
+        if isDetected { startVerify() } else { stopVerify() }
+    }
+
+    private func startVerify() {
+        guard verifyTimer == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 5, repeating: 5, leeway: .seconds(1))
+        t.setEventHandler { [weak self] in self?.recheck() }
+        t.resume()
+        verifyTimer = t
+    }
+
+    private func stopVerify() {
+        verifyTimer?.cancel()
+        verifyTimer = nil
     }
 
     static func frontmostIsFullscreen() -> Bool {
