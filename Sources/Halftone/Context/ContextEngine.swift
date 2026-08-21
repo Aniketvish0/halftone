@@ -63,13 +63,25 @@ final class ContextEngine {
             if prefs[keyPath: enabled] { detector.start() } else { detector.stop() }
         }
         deepFocus.listChanged() // hold-list edits apply immediately too
-        recompute()
+        // The user flipped a switch: that's an instruction, not an activity
+        // ending. Release instantly instead of lingering.
+        recompute(clearImmediately: true)
     }
 
-    private func recompute() {
+    private func recompute(clearImmediately: Bool = false) {
         var flags: Set<ContextFlag> = []
         for (detector, enabled) in all where prefs[keyPath: enabled] && detector.isDetected {
             flags.insert(detector.flag)
+        }
+        // Mid-linger, activeFlags is already empty, so a toggle flip is
+        // invisible to the flags diff. The instruction to clear must still
+        // cancel the linger.
+        if clearImmediately, flags.isEmpty, shouldHold {
+            lingerTimer?.cancel(); lingerTimer = nil
+            activeFlags = []
+            holdReasons = []
+            setHold(false)
+            return
         }
         guard flags != activeFlags else { return }
         activeFlags = flags
@@ -79,8 +91,13 @@ final class ContextEngine {
             lingerTimer?.cancel(); lingerTimer = nil
             holdReasons = flags
             setHold(true)
+        } else if clearImmediately {
+            lingerTimer?.cancel(); lingerTimer = nil
+            holdReasons = []
+            setHold(false)
         } else {
-            // guard above means hadFlags: keep holding through the linger.
+            // Activity ended on its own: keep holding through the linger
+            // (calls have silences, videos have chapter gaps).
             startLinger()
         }
     }
@@ -116,6 +133,34 @@ final class ContextEngine {
         activeFlags = hold ? reasons : []
         holdReasons = hold ? reasons : []
         setHold(hold)
+    }
+
+    /// Test seam: a fake detector wired through the REAL toggle/recompute
+    /// machinery (unlike _testSetHold, which bypasses it). `enabled` maps it
+    /// to a real preference so preference flips exercise the real path.
+    @MainActor
+    final class _TestDetector: ContextDetector {
+        let flag: ContextFlag
+        var onChange: (() -> Void)?
+        private(set) var isDetected = false
+        private(set) var running = false
+        init(flag: ContextFlag) { self.flag = flag }
+        func start() { running = true }
+        func stop() { running = false; isDetected = false }
+        func simulate(detected: Bool) {
+            isDetected = detected && running
+            onChange?()
+        }
+    }
+
+    /// Registers a fake detector bound to a preference key path. Test-only.
+    @discardableResult
+    func _testInstallDetector(flag: ContextFlag, enabled: KeyPath<Preferences, Bool>) -> _TestDetector {
+        let d = _TestDetector(flag: flag)
+        d.onChange = { [weak self] in self?.recompute() }
+        all.append((d, enabled))
+        applyToggles()
+        return d
     }
 #endif
 

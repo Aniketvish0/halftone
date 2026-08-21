@@ -261,3 +261,91 @@ struct EngineTests {
         }
     }
 }
+
+// MARK: - Toggle latency contract (500ms budget)
+
+@MainActor
+extension EngineTests {
+
+    /// The full user path: detector active + enabled -> hold; user flips the
+    /// toggle OFF in Settings -> hold releases. Measures wall-clock latency
+    /// end to end through the real preference-notification machinery.
+    @Test func toggleOffReleasesHoldWithin500ms() async {
+        let engine = makeEngine()
+        let fake = engine.context._testInstallDetector(
+            flag: .mediaPlaying, enabled: \.pauseOnMedia)
+
+        prefs.pauseOnMedia = true
+        await drainMainQueue()
+        fake.simulate(detected: true)
+        #expect(engine.context.shouldHold, "active+enabled detector must hold")
+        #expect(engine.context.activeFlags == [.mediaPlaying])
+
+        let flipAt = Date()
+        prefs.pauseOnMedia = false
+        // Wait until released, sampling the runloop; fail past the budget.
+        while engine.context.shouldHold, Date().timeIntervalSince(flipAt) < 1.0 {
+            await drainMainQueue()
+        }
+        let latency = Date().timeIntervalSince(flipAt)
+        print("MEASURED toggle-off release latency: \(Int(latency * 1000))ms")
+        #expect(!engine.context.shouldHold, "toggle off must release the hold")
+        #expect(latency < 0.5, "release took \(Int(latency * 1000))ms; budget is 500ms")
+
+        prefs.pauseOnMedia = true
+        await drainMainQueue()
+    }
+
+    /// Toggle ON while the activity is already happening must hold promptly.
+    @Test func toggleOnDetectsWithin500ms() async {
+        let engine = makeEngine()
+        let fake = engine.context._testInstallDetector(
+            flag: .mediaPlaying, enabled: \.pauseOnMedia)
+
+        prefs.pauseOnMedia = false
+        await drainMainQueue()
+        fake.simulate(detected: true) // stopped detector: ignored
+        #expect(!engine.context.shouldHold, "disabled detector must not hold")
+
+        let flipAt = Date()
+        prefs.pauseOnMedia = true
+        while !engine.context.shouldHold, Date().timeIntervalSince(flipAt) < 1.0 {
+            await drainMainQueue()
+            fake.simulate(detected: true) // detector re-reports once started
+        }
+        let latency = Date().timeIntervalSince(flipAt)
+        print("MEASURED toggle-on hold latency: \(Int(latency * 1000))ms")
+        #expect(engine.context.shouldHold, "toggle on during activity must hold")
+        #expect(latency < 0.5, "hold took \(Int(latency * 1000))ms; budget is 500ms")
+
+        fake.simulate(detected: false)
+        prefs.pauseOnMedia = true
+        await drainMainQueue()
+    }
+
+    /// Activity ending NATURALLY must keep holding through the linger window
+    /// (toggle-off releases instantly; a call's silence must not).
+    @Test func naturalEndLingersButToggleOffDoesNot() async {
+        let engine = makeEngine()
+        let fake = engine.context._testInstallDetector(
+            flag: .micInUse, enabled: \.pauseOnMic)
+        prefs.pauseOnMic = true
+        prefs.contextLingerSec = 60
+        await drainMainQueue()
+
+        fake.simulate(detected: true)
+        #expect(engine.context.shouldHold)
+
+        // Natural end: detector reports gone, hold must persist (linger).
+        fake.simulate(detected: false)
+        #expect(engine.context.shouldHold, "natural end must linger, not drop instantly")
+
+        // Toggle off mid-linger: must release immediately.
+        prefs.pauseOnMic = false
+        await drainMainQueue()
+        #expect(!engine.context.shouldHold, "toggle off mid-linger must release now")
+
+        prefs.pauseOnMic = true
+        await drainMainQueue()
+    }
+}

@@ -104,7 +104,7 @@ struct SmartPausePane: View {
             } header: {
                 Text("Hold breaks while…")
             } footer: {
-                Text("Held breaks fire ~15 seconds after the activity ends.")
+                Text("Held breaks fire ~15 seconds after the activity ends. Toggles apply instantly.")
             }
 
             Section("After activity ends") {

@@ -15,12 +15,14 @@ struct DebouncerTests {
     }
 
     @Test func separateBurstsFireSeparately() async {
+        // Generous margins: under parallel-suite load a 150ms sleep can
+        // resume late enough to merge two 50ms windows (observed flake).
         let debouncer = Debouncer(delay: 0.05)
         let counter = Counter()
         debouncer.schedule { Task { await counter.increment() } }
-        try? await Task.sleep(for: .milliseconds(150))
+        try? await Task.sleep(for: .milliseconds(400))
         debouncer.schedule { Task { await counter.increment() } }
-        try? await Task.sleep(for: .milliseconds(150))
+        try? await Task.sleep(for: .milliseconds(400))
         #expect(await counter.value == 2)
     }
 
