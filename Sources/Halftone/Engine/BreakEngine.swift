@@ -261,6 +261,15 @@ final class BreakEngine {
         }
     }
 
+#if DEBUG
+    /// Test seam: enters heldByContext directly. The real entries are timing-
+    /// bound (a due break meeting an active hold), untestable without clock
+    /// injection.
+    func _testEnterHeld(kind: BreakKind = .short) {
+        transition(.heldByContext(kind: kind, overdueSince: Date()))
+    }
+#endif
+
     // MARK: - State machine
 
     /// The single funnel into `.working`: maintains the invariant that
@@ -282,8 +291,13 @@ final class BreakEngine {
 
     /// Time-based cadence: a break is long when it lands at least longInterval
     /// after the last completed long break. Works for any short/long ratio.
+    /// Static so tests drive the real rule, not a copy.
+    static func kind(dueAt: Date, lastLongBreakAt: Date, longInterval: TimeInterval) -> BreakKind {
+        dueAt.timeIntervalSince(lastLongBreakAt) >= longInterval ? .long : .short
+    }
+
     private func kindForBreak(dueAt: Date) -> BreakKind {
-        dueAt.timeIntervalSince(lastLongBreakAt) >= prefs.longInterval ? .long : .short
+        Self.kind(dueAt: dueAt, lastLongBreakAt: lastLongBreakAt, longInterval: prefs.longInterval)
     }
 
     /// An overdue break re-enters through a short grace warning.

@@ -9,10 +9,17 @@ import CoreGraphics
 /// reads that domain directly, and they only matter bundled.)
 enum Defaults {
     static let store: UserDefaults = {
-        // Tests must not write the live app's preferences.
-        if let suite = ProcessInfo.processInfo.environment["HALFTONE_DEFAULTS_SUITE"] {
-            let s = UserDefaults(suiteName: suite) ?? .standard
-            return s
+        let info = ProcessInfo.processInfo
+        // Tests must never write the live app's preferences — honor an explicit
+        // override, and also auto-detect the SwiftPM test runner so a bare
+        // `swift test` (without Scripts/test.sh) is still isolated.
+        if let suite = info.environment["HALFTONE_DEFAULTS_SUITE"] {
+            return UserDefaults(suiteName: suite) ?? .standard
+        }
+        if info.processName.contains("PackageTests")
+            || info.environment["SWIFTPM_TEST_RUNNER"] != nil
+            || info.arguments.contains(where: { $0.contains(".xctest") }) {
+            return UserDefaults(suiteName: "me.aniket.halftone.tests") ?? .standard
         }
         if Bundle.main.bundleIdentifier != nil { return .standard }
         return UserDefaults(suiteName: "me.aniket.halftone") ?? .standard

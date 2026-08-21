@@ -20,6 +20,12 @@ struct EngineTests {
         prefs.playSounds = false
         prefs.idleEnabled = false
         prefs.officeHoursEnabled = false
+        prefs.pauseOnMic = false
+        prefs.pauseOnCamera = false
+        prefs.pauseOnScreenCapture = false
+        prefs.pauseOnMedia = false
+        prefs.pauseOnFullscreen = false
+        prefs.pauseOnDeepFocusApps = false
         await drainMainQueue()
     }
 
@@ -136,10 +142,92 @@ struct EngineTests {
     @Test func pauseWhileHeldResumesToShortCountdown() {
         let engine = makeEngine()
         engine.context._testSetHold(true)
+        engine._testEnterHeld()
+        var wasHeld = false
+        if case .heldByContext = engine.state { wasHeld = true }
+        #expect(wasHeld)
         engine.pause()
         engine.context._testSetHold(false)
         engine.resume()
-        #expect(workingDue(engine) != nil)
+        // Pausing from held records a 30s floor, not the full interval.
+        let due = workingDue(engine)
+        #expect(due != nil)
+        if let due { #expect(due.timeIntervalSinceNow < 60, "held pause resumes short, not full cycle") }
+    }
+
+    @Test func holdReleaseFromHeldEntersGraceWarning() {
+        let engine = makeEngine()
+        engine.context._testSetHold(true)
+        engine._testEnterHeld()
+        engine.context._testSetHold(false)
+        // contextChanged on release routes held -> warnSoon (15s grace warning).
+        var warned = false
+        if case .warning(let at, _) = engine.state {
+            warned = true
+            #expect(abs(at.timeIntervalSinceNow - 15) < 2)
+        }
+        #expect(warned, "hold release must enter the 15s grace warning")
+    }
+
+    // MARK: Cadence (engine-integrated)
+
+    @Test func engineFirstBreakKindMatchesRule() {
+        let engine = makeEngine()
+        guard case .working(_, let kind) = engine.state else {
+            Issue.record("not working"); return
+        }
+        #expect(kind == .short, "fresh start: first break 20m out, long due at 60m")
+    }
+
+    // MARK: Context engine
+
+    @Test func holdSetAndReleaseViaSeam() {
+        let engine = makeEngine()
+        var changes = 0
+        engine.context.onChange = { changes += 1 }
+        engine.context._testSetHold(true)
+        #expect(engine.context.shouldHold)
+        #expect(engine.context.holdReasons == [.micInUse])
+        engine.context._testSetHold(false)
+        #expect(!engine.context.shouldHold)
+        #expect(changes >= 2)
+    }
+
+    @Test func disabledDetectorsContributeNoFlags() {
+        let engine = makeEngine()
+        #expect(engine.context.activeFlags.isEmpty)
+    }
+
+    // MARK: Preferences
+
+    @Test func changesCoalesceToOnePostPerRunloopTurn() async {
+        var posts = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: Preferences.changed, object: nil, queue: .main
+        ) { _ in posts += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let original = prefs.warnLeadSec
+        for v in [10, 15, 20, 25, 30] { prefs.warnLeadSec = v }
+        await drainMainQueue()
+        #expect(posts == 1, "5 writes in one turn must post once (got \(posts))")
+        prefs.warnLeadSec = original
+        await drainMainQueue()
+    }
+
+    @Test func valuesPersistToStore() {
+        let original = prefs.shortDurationSec
+        prefs.shortDurationSec = 45
+        #expect(Defaults.store.integer(forKey: "shortDurationSec") == 45)
+        prefs.shortDurationSec = original
+    }
+
+    @Test func officeDaysRoundTripsAsSet() {
+        let original = prefs.officeDays
+        prefs.officeDays = [1, 7]
+        let stored = Set((Defaults.store.array(forKey: "officeDays") as? [Int]) ?? [])
+        #expect(stored == [1, 7])
+        prefs.officeDays = original
     }
 
     // MARK: Session resume

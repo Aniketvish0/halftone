@@ -1,4 +1,4 @@
-/* Halftone landing — theme toggle, scroll-shrink fallback, shot reveals. */
+/* Halftone landing. theme toggle, scroll-shrink fallback, shot reveals. */
 (function () {
   "use strict";
 

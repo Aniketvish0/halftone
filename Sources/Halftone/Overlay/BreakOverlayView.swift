@@ -61,9 +61,9 @@ struct BreakOverlayView: View {
 
 /// A calm, breathing gradient built from TWO static meshes crossfaded by
 /// opacity. Opacity is a CALayer-animatable property, so the render server
-/// interpolates it off-process — measured 0.x% CPU. Animating MeshGradient
+/// interpolates it off-process (measured 0.x% CPU). Animating MeshGradient
 /// *points* looks equivalent but is re-interpolated by SwiftUI on the CPU
-/// every frame (measured 10-19% during a break — do not go back to it).
+/// every frame: measured 10-19% during a break. Do not go back to it.
 private struct AnimatedMesh: View {
     @State private var breathe = false
 

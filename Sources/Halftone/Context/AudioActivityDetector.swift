@@ -30,9 +30,17 @@ final class AudioProcessMonitor {
 
     private func notify() { for block in observers.values { block() } }
 
-    /// Bundle-ID prefixes whose "input running" is meaningless chatter
-    /// (virtual audio drivers pin input open forever).
-    private let ignoredBundlePrefixes = ["com.rogueamoeba.", "audio.existential.BlackHole"]
+    /// Bundle-ID prefixes whose "input running" is meaningless chatter:
+    /// virtual audio drivers pin input open forever, and always-listening
+    /// dictation daemons (Wispr Flow) grab the mic without being a call.
+    /// Overridable: defaults write me.aniket.halftone audioIgnoredBundlePrefixes -array ...
+    private var ignoredBundlePrefixes: [String] {
+        (Defaults.store.array(forKey: "audioIgnoredBundlePrefixes") as? [String]) ?? [
+            "com.rogueamoeba.",
+            "audio.existential.BlackHole",
+            "com.electron.wispr-flow",
+        ]
+    }
 
     private var started = false
     private let queue = DispatchQueue(label: "halftone.audio-monitor", qos: .utility)
