@@ -93,7 +93,7 @@ struct SmartPausePane: View {
                     Label { Text("Camera in use"); Text("Any app using any camera").font(.caption).foregroundStyle(.secondary) } icon: { Image(systemName: "video.fill") }
                 }
                 Toggle(isOn: $prefs.pauseOnScreenCapture) {
-                    Label { Text("Screen shared or recording"); Text("Zoom/Meet shares, OBS, QuickTime, screenshots apps").font(.caption).foregroundStyle(.secondary) } icon: { Image(systemName: "rectangle.badge.record") }
+                    Label { Text("Screen shared or recording"); Text("Zoom/Meet shares, OBS, QuickTime, screenshots apps").font(.caption).foregroundStyle(.secondary) } icon: { Image(systemName: "rectangle.dashed.badge.record") }
                 }
                 Toggle(isOn: $prefs.pauseOnMedia) {
                     Label { Text("Video playing"); Text("Playing audio while keeping the display awake").font(.caption).foregroundStyle(.secondary) } icon: { Image(systemName: "play.rectangle.fill") }

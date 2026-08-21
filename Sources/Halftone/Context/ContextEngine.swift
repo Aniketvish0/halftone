@@ -15,6 +15,12 @@ final class ContextEngine {
     /// What the UI shows as the hold reason (kept during linger).
     private(set) var holdReasons: Set<ContextFlag> = []
 
+    /// Menu-ready summary of the hold reasons.
+    var holdReasonsSummary: String {
+        let names = holdReasons.map(\.displayName).sorted().joined(separator: ", ")
+        return names.isEmpty ? "recent activity" : names
+    }
+
     var onChange: (() -> Void)?
 
     private let prefs = Preferences.shared

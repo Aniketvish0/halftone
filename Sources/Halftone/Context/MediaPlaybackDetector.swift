@@ -13,7 +13,7 @@ final class MediaPlaybackDetector: ContextDetector {
     private(set) var isDetected = false
 
     private var observerID: UUID?
-    private var assertionTimer: DispatchSourceTimer?
+    private let assertionPoller = RepeatingPoller()
     private var displaySleepPIDs: Set<pid_t> = []
 
     func start() {
@@ -75,17 +75,13 @@ final class MediaPlaybackDetector: ContextDetector {
     }
 
     private func startAssertionPollingIfNeeded() {
-        guard assertionTimer == nil else { return }
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + 10, repeating: 10, leeway: .seconds(2))
-        t.setEventHandler { [weak self] in self?.recheck() }
-        t.resume()
-        assertionTimer = t
+        assertionPoller.start(interval: 10, leeway: .seconds(2)) { [weak self] in
+            self?.recheck()
+        }
     }
 
     private func stopAssertionPolling() {
-        assertionTimer?.cancel()
-        assertionTimer = nil
+        assertionPoller.stop()
     }
 
     private func refreshAssertions() {

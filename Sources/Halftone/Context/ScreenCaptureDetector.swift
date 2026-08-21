@@ -12,7 +12,7 @@ final class ScreenCaptureDetector: ContextDetector {
     var onChange: (() -> Void)?
     private(set) var isDetected = false
 
-    private var timer: DispatchSourceTimer?
+    private let poller = RepeatingPoller()
 
     private typealias WatcherFn = @convention(c) () -> Bool
     private static let isWatcherPresent: WatcherFn? = {
@@ -23,20 +23,16 @@ final class ScreenCaptureDetector: ContextDetector {
     }()
 
     func start() {
-        guard timer == nil else { return }
         // A single window-server call every 2s is negligible; notification
         // registration (SLSRegisterNotifyProc 1502/1503) has no unregister,
         // which fights runtime toggling — so poll-only, cheap and correct.
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now(), repeating: 2, leeway: .milliseconds(500))
-        t.setEventHandler { [weak self] in self?.recheck() }
-        t.resume()
-        timer = t
+        poller.start(interval: 2, leeway: .milliseconds(500), firstDelay: 0) { [weak self] in
+            self?.recheck()
+        }
     }
 
     func stop() {
-        timer?.cancel()
-        timer = nil
+        poller.stop()
         isDetected = false
     }
 

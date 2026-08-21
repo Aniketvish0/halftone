@@ -37,3 +37,29 @@ final class Debouncer: @unchecked Sendable {
         timer = nil
     }
 }
+
+
+/// A repeating main-queue poll with leeway. The detectors' shared shape:
+/// guard-once start, cancel-and-nil stop.
+@MainActor
+final class RepeatingPoller {
+    private var timer: DispatchSourceTimer?
+
+    func start(interval: TimeInterval, leeway: DispatchTimeInterval,
+               firstDelay: TimeInterval? = nil, _ block: @escaping () -> Void) {
+        guard timer == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + (firstDelay ?? interval),
+                   repeating: interval, leeway: leeway)
+        t.setEventHandler(handler: block)
+        t.resume()
+        timer = t
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+    }
+
+    var isRunning: Bool { timer != nil }
+}

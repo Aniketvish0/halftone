@@ -3,9 +3,14 @@ import AppKit
 import CoreGraphics
 
 /// "The frontmost app is fullscreen" — window geometry vs screen frames.
-/// Re-evaluates only on Space changes and app activations (event-driven,
-/// no polling). Geometry/PID/layer need no Screen Recording permission.
-/// Doubles as the deep-focus-app detector (user-listed bundle IDs).
+/// Geometry/PID/layer need no Screen Recording permission.
+///
+/// Timing: Space-change/activation events land mid-animation, when the
+/// window list can still show the OLD bounds in either direction. So each
+/// event triggers a read now plus a debounced settle re-read, and while the
+/// flag is TRUE a slow 30s re-verify runs (a stale true holds breaks forever
+/// with no event to fix it; a stale false gets corrected by the settle read
+/// or the next event). Steady state with no fullscreen app is event-only.
 @MainActor
 final class FullscreenDetector: ContextDetector {
     let flag = ContextFlag.fullscreenApp
@@ -13,7 +18,8 @@ final class FullscreenDetector: ContextDetector {
     private(set) var isDetected = false
 
     private var tokens: [NSObjectProtocol] = []
-    private var verifyTimer: DispatchSourceTimer?
+    private let verify = RepeatingPoller()
+    private let settle = Debouncer(delay: 1.2)
 
     func start() {
         guard tokens.isEmpty else { return }
@@ -21,15 +27,7 @@ final class FullscreenDetector: ContextDetector {
         for name in [NSWorkspace.activeSpaceDidChangeNotification,
                      NSWorkspace.didActivateApplicationNotification] {
             tokens.append(wsnc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.recheck()
-                    // Fullscreen exit animates; geometry read at the event can
-                    // still see the old full-frame bounds. Re-read after it
-                    // settles so a stale reading can't stick.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        self?.recheck()
-                    }
-                }
+                MainActor.assumeIsolated { self?.eventFired() }
             })
         }
         recheck()
@@ -39,8 +37,19 @@ final class FullscreenDetector: ContextDetector {
         let wsnc = NSWorkspace.shared.notificationCenter
         for t in tokens { wsnc.removeObserver(t) }
         tokens = []
-        stopVerify()
+        settle.cancel()
+        verify.stop()
         isDetected = false
+    }
+
+    private func eventFired() {
+        recheck()
+        // The settle re-read covers BOTH stale directions (entered fullscreen
+        // but read old windowed bounds, or exited but read old full bounds).
+        // Debounced: cmd-tabbing through N apps coalesces to one re-read.
+        settle.schedule { [weak self] in
+            MainActor.assumeIsolated { self?.recheck() }
+        }
     }
 
     private func recheck() {
@@ -50,24 +59,15 @@ final class FullscreenDetector: ContextDetector {
             isDetected = now
             onChange?()
         }
-        // A wrongly-true flag holds breaks forever with no event to fix it.
-        // While the flag is on, cheaply re-verify every 5s; the timer exists
-        // only in that state, so the normal case stays event-driven.
-        if isDetected { startVerify() } else { stopVerify() }
-    }
-
-    private func startVerify() {
-        guard verifyTimer == nil else { return }
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + 5, repeating: 5, leeway: .seconds(1))
-        t.setEventHandler { [weak self] in self?.recheck() }
-        t.resume()
-        verifyTimer = t
-    }
-
-    private func stopVerify() {
-        verifyTimer?.cancel()
-        verifyTimer = nil
+        if isDetected {
+            // 30s: a stale-true costs at most a slightly-later break, so slow
+            // verification is fine, and a 2h fullscreen movie stays cheap.
+            verify.start(interval: 30, leeway: .seconds(5)) { [weak self] in
+                self?.recheck()
+            }
+        } else {
+            verify.stop()
+        }
     }
 
     static func frontmostIsFullscreen() -> Bool {

@@ -20,21 +20,21 @@ enum ContextFlag: String {
         }
     }
 
-    /// Menu bar symbol for this hold reason. When several reasons are active
-    /// the highest-priority one (call > share > camera > media > fullscreen
-    /// > focus app) decides the icon.
+    /// Menu bar symbol for this hold reason. When several reasons are
+    /// active, the lowest `priority` value decides the icon.
     var symbolName: String {
         switch self {
         case .micInUse: "person.wave.2"
         case .cameraInUse: "video"
-        case .screenCaptured: "rectangle.badge.record"
+        case .screenCaptured: "rectangle.dashed.badge.record"
         case .mediaPlaying: "play.rectangle"
         case .fullscreenApp: "arrow.up.left.and.arrow.down.right"
         case .deepFocusApp: "scope"
         }
     }
 
-    /// Priority for picking the icon when multiple reasons hold at once.
+    /// Icon priority when multiple reasons hold at once: call beats screen
+    /// share beats camera beats video beats fullscreen beats focus app.
     var priority: Int {
         switch self {
         case .micInUse: 0
