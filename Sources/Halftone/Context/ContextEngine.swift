@@ -102,6 +102,16 @@ final class ContextEngine {
         lingerTimer = t
     }
 
+    /// Test seam: forces the hold state as if detectors had fired. Keeps the
+    /// linger/reasons machinery out of the way so engine tests can assert
+    /// hold interactions deterministically.
+    func _testSetHold(_ hold: Bool, reasons: Set<ContextFlag> = [.micInUse]) {
+        lingerTimer?.cancel(); lingerTimer = nil
+        activeFlags = hold ? reasons : []
+        holdReasons = hold ? reasons : []
+        setHold(hold)
+    }
+
     private func setHold(_ hold: Bool) {
         if hold != shouldHold { shouldHold = hold }
         onChange?() // reasons may change even when hold doesn't

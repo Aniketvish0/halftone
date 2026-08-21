@@ -5,12 +5,22 @@ let package = Package(
     name: "Halftone",
     platforms: [.macOS("26.0")],
     targets: [
+        .target(
+            name: "HalftoneKit",
+            path: "Sources/Halftone",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "Halftone",
-            path: "Sources/Halftone",
-            swiftSettings: [
-                .swiftLanguageMode(.v5) // relax strict concurrency for AppKit interop; tighten later
-            ]
-        )
+            dependencies: ["HalftoneKit"],
+            path: "Sources/HalftoneMain",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "HalftoneKitTests",
+            dependencies: ["HalftoneKit"],
+            path: "Tests/HalftoneKitTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

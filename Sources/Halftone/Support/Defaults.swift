@@ -9,6 +9,11 @@ import CoreGraphics
 /// reads that domain directly, and they only matter bundled.)
 enum Defaults {
     static let store: UserDefaults = {
+        // Tests must not write the live app's preferences.
+        if let suite = ProcessInfo.processInfo.environment["HALFTONE_DEFAULTS_SUITE"] {
+            let s = UserDefaults(suiteName: suite) ?? .standard
+            return s
+        }
         if Bundle.main.bundleIdentifier != nil { return .standard }
         return UserDefaults(suiteName: "me.aniket.halftone") ?? .standard
     }()

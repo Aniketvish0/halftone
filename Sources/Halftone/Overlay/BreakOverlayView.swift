@@ -59,34 +59,44 @@ struct BreakOverlayView: View {
     }
 }
 
-/// A calm, slowly-drifting mesh gradient. The drift is driven by a single
-/// repeatForever animation, so the render server interpolates frames
-/// off-process — the app itself never wakes for it. (The previous 4 Hz
-/// TimelineView cost ~2,400 app wakeups over one 5-minute break per display.)
+/// A calm, breathing gradient built from TWO static meshes crossfaded by
+/// opacity. Opacity is a CALayer-animatable property, so the render server
+/// interpolates it off-process — measured 0.x% CPU. Animating MeshGradient
+/// *points* looks equivalent but is re-interpolated by SwiftUI on the CPU
+/// every frame (measured 10-19% during a break — do not go back to it).
 private struct AnimatedMesh: View {
-    @State private var drifted = false
+    @State private var breathe = false
+
+    private static let colorsA: [Color] = [
+        Color(red: 0.05, green: 0.10, blue: 0.24),
+        Color(red: 0.10, green: 0.14, blue: 0.36),
+        Color(red: 0.05, green: 0.09, blue: 0.22),
+        Color(red: 0.12, green: 0.10, blue: 0.34),
+        Color(red: 0.22, green: 0.16, blue: 0.48),
+        Color(red: 0.10, green: 0.12, blue: 0.34),
+        Color(red: 0.04, green: 0.07, blue: 0.18),
+        Color(red: 0.08, green: 0.09, blue: 0.26),
+        Color(red: 0.04, green: 0.06, blue: 0.16),
+    ]
+
+    private static let pointsA: [SIMD2<Float>] = [
+        [0, 0], [0.5, 0], [1, 0],
+        [0, 0.5], [0.42, 0.57], [1, 0.5],
+        [0, 1], [0.5, 1], [1, 1],
+    ]
+    private static let pointsB: [SIMD2<Float>] = [
+        [0, 0], [0.5, 0], [1, 0],
+        [0, 0.5], [0.58, 0.43], [1, 0.5],
+        [0, 1], [0.5, 1], [1, 1],
+    ]
 
     var body: some View {
-        MeshGradient(
-            width: 3, height: 3,
-            points: [
-                [0, 0], [0.5, 0], [1, 0],
-                [0, 0.5], drifted ? [0.58, 0.43] : [0.42, 0.57], [1, 0.5],
-                [0, 1], [0.5, 1], [1, 1],
-            ],
-            colors: [
-                Color(red: 0.05, green: 0.10, blue: 0.24),
-                Color(red: 0.10, green: 0.14, blue: 0.36),
-                Color(red: 0.05, green: 0.09, blue: 0.22),
-                Color(red: 0.12, green: 0.10, blue: 0.34),
-                Color(red: 0.22, green: 0.16, blue: 0.48),
-                Color(red: 0.10, green: 0.12, blue: 0.34),
-                Color(red: 0.04, green: 0.07, blue: 0.18),
-                Color(red: 0.08, green: 0.09, blue: 0.26),
-                Color(red: 0.04, green: 0.06, blue: 0.16),
-            ]
-        )
-        .animation(.easeInOut(duration: 11).repeatForever(autoreverses: true), value: drifted)
-        .onAppear { drifted = true }
+        ZStack {
+            MeshGradient(width: 3, height: 3, points: Self.pointsA, colors: Self.colorsA)
+            MeshGradient(width: 3, height: 3, points: Self.pointsB, colors: Self.colorsA)
+                .opacity(breathe ? 1 : 0)
+        }
+        .animation(.easeInOut(duration: 11).repeatForever(autoreverses: true), value: breathe)
+        .onAppear { breathe = true }
     }
 }

@@ -52,6 +52,25 @@ func runProbe() {
     RunLoop.main.run()
 }
 
+@MainActor
+func runShowcase(_ what: String) {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let engine = BreakEngine()
+    let overlay = OverlayController(engine: engine)
+    let pill = WarningPillController(engine: engine)
+    switch what {
+    case "overlay":
+        overlay.show(kind: .short, endsAt: Date().addingTimeInterval(20))
+    case "pill":
+        pill.show(breakAt: Date().addingTimeInterval(30))
+    default:
+        print("unknown showcase: \(what)"); exit(1)
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 12) { exit(0) }
+    app.run()
+}
+
 /// In-process engine tests that need the real Preferences notification path.
 /// Async steps run on the main run loop; exits nonzero on failure.
 @MainActor
@@ -116,10 +135,9 @@ func runSelfTest() {
     exit(failures == 0 ? 0 : 1)
 }
 
-@main
-enum HalftoneMain {
-    @MainActor
-    static func main() {
+/// Entry point, called by the executable target's @main.
+@MainActor
+public func halftoneMain() {
         // `halftone --probe` prints live detector state for N seconds. Used to
         // verify detection against real Zoom/YouTube/etc. without GUI digging.
         if CommandLine.arguments.contains("--probe") {
@@ -128,6 +146,13 @@ enum HalftoneMain {
         }
         if CommandLine.arguments.contains("--selftest") {
             runSelfTest()
+            return
+        }
+        // --showcase [pill|overlay]: show that UI immediately for N seconds.
+        // Exists so screenshots/tests don't have to race the real scheduler.
+        if let idx = CommandLine.arguments.firstIndex(of: "--showcase"),
+           idx + 1 < CommandLine.arguments.count {
+            runShowcase(CommandLine.arguments[idx + 1])
             return
         }
 
@@ -145,4 +170,3 @@ enum HalftoneMain {
         app.setActivationPolicy(.accessory) // belt-and-braces alongside LSUIElement
         app.run()
     }
-}
