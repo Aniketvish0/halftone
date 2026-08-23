@@ -167,9 +167,16 @@ final class ContextEngine {
         }
     }
 
-    /// Registers a fake detector bound to a preference key path. Test-only.
+    /// Registers a fake detector bound to a preference key path, REPLACING
+    /// the real detector for that flag. Appending instead of replacing left
+    /// the real detector running alongside the fake, so real machine state
+    /// (an actual fullscreen Space, actual playing audio) polluted tests.
     @discardableResult
     func _testInstallDetector(flag: ContextFlag, enabled: KeyPath<Preferences, Bool>) -> _TestDetector {
+        for (detector, _) in all where detector.flag == flag {
+            detector.stop()
+        }
+        all.removeAll { $0.detector.flag == flag }
         let d = _TestDetector(flag: flag)
         d.onChange = { [weak self] in self?.recompute() }
         all.append((d, enabled))

@@ -450,3 +450,58 @@ extension EngineTests {
         #expect(glow._testPanelIDs.isEmpty)
     }
 }
+
+// MARK: - Toggle x detection matrix
+
+@MainActor
+extension EngineTests {
+
+    /// Every (toggle, detection) permutation across two flags: the flag set,
+    /// hold state, and menu icon must all agree. This is the class of bug
+    /// from the field: one signal toggled off while another stays detected.
+    @Test func toggleDetectionMatrixKeepsFlagsHoldAndIconConsistent() async {
+        let engine = makeEngine()
+        let media = engine.context._testInstallDetector(flag: .mediaPlaying, enabled: \.pauseOnMedia)
+        let fullscreen = engine.context._testInstallDetector(flag: .fullscreenApp, enabled: \.pauseOnFullscreen)
+
+        for mediaOn in [false, true] {
+            for fsOn in [false, true] {
+                for mediaDetected in [false, true] {
+                    for fsDetected in [false, true] {
+                        prefs.pauseOnMedia = mediaOn
+                        prefs.pauseOnFullscreen = fsOn
+                        await drainMainQueue()
+                        media.simulate(detected: mediaDetected)
+                        fullscreen.simulate(detected: fsDetected)
+
+                        var expected: Set<ContextFlag> = []
+                        if mediaOn && mediaDetected { expected.insert(.mediaPlaying) }
+                        if fsOn && fsDetected { expected.insert(.fullscreenApp) }
+
+                        let label = "media(on:\(mediaOn) det:\(mediaDetected)) fs(on:\(fsOn) det:\(fsDetected))"
+                        #expect(engine.context.activeFlags == expected, "flags wrong for \(label)")
+
+                        if !expected.isEmpty {
+                            #expect(engine.context.shouldHold, "must hold for \(label)")
+                            // The icon must reflect the top-priority ACTIVE reason.
+                            let display = MenuBarDisplay.compute(
+                                state: engine.state, shouldHold: true,
+                                holdReasons: engine.context.holdReasons,
+                                showCountdown: true, now: Date())
+                            let top = expected.min(by: { $0.priority < $1.priority })!
+                            #expect(display.symbol == top.symbolName, "icon wrong for \(label)")
+                        }
+
+                        // Clear detections and release the hold instantly so
+                        // the next permutation starts clean (toggle-off path).
+                        media.simulate(detected: false)
+                        fullscreen.simulate(detected: false)
+                        prefs.pauseOnMedia = false
+                        prefs.pauseOnFullscreen = false
+                        await drainMainQueue()
+                    }
+                }
+            }
+        }
+    }
+}

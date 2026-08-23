@@ -69,7 +69,51 @@ final class FullscreenDetector: ContextDetector {
         onChange?()
     }
 
+    // MARK: Space-type signal (primary)
+
+    private typealias CIDFn = @convention(c) () -> Int32
+    private typealias CopySpacesFn = @convention(c) (Int32) -> CFArray
+
+    private static let slsConnection: Int32? = {
+        guard let h = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+              let sym = dlsym(h, "SLSMainConnectionID") else { return nil }
+        return unsafeBitCast(sym, to: CIDFn.self)()
+    }()
+
+    private static let copySpaces: CopySpacesFn? = {
+        guard let h = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+              let sym = dlsym(h, "SLSCopyManagedDisplaySpaces") else { return nil }
+        return unsafeBitCast(sym, to: CopySpacesFn.self)
+    }()
+
+    /// The window server's own answer: is any display's current Space a
+    /// fullscreen Space (type 4)? This is the only signal that works on
+    /// notched Macs, where a real fullscreen window and a maximized window
+    /// have IDENTICAL geometry (both sit below the camera housing, so
+    /// neither matches screen.frame). nil = SkyLight unavailable.
+    static func anyDisplayOnFullscreenSpace() -> Bool? {
+        guard let cid = slsConnection, let copySpaces else { return nil }
+        guard let displays = copySpaces(cid) as? [[String: Any]] else { return nil }
+        for display in displays {
+            if let current = display["Current Space"] as? [String: Any],
+               (current["type"] as? Int) == 4 {
+                return true
+            }
+        }
+        return false
+    }
+
     static func frontmostIsFullscreen() -> Bool {
+        // Primary: ask the window server about the active Space directly.
+        if let spaceAnswer = anyDisplayOnFullscreenSpace() {
+            return spaceAnswer
+        }
+        // Fallback (SkyLight missing): geometry vs full screen frame. Blind
+        // on notched Macs but correct on plain displays.
+        return frontmostFillsScreenFrame()
+    }
+
+    private static func frontmostFillsScreenFrame() -> Bool {
         guard let front = NSWorkspace.shared.frontmostApplication,
               front.processIdentifier != ProcessInfo.processInfo.processIdentifier,
               let info = CGWindowListCopyWindowInfo(
