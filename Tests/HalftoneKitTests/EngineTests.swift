@@ -547,3 +547,80 @@ extension EngineTests {
         await drainMainQueue()
     }
 }
+
+// MARK: - Idle during engagement (the mid-call restart)
+
+@MainActor
+extension EngineTests {
+
+    /// THE FIELD BUG: hands-still on a call crossed the idle threshold; when
+    /// the "return" fired, away >= shortDuration credited a break and started
+    /// a FRESH cycle, restarting a countdown that had been at 2 minutes left.
+    /// Cancellation must restore the pending countdown exactly.
+    @Test func idleCancellationRestoresPendingCountdownExactly() {
+        let engine = makeEngine()
+        let dueBefore = workingDue(engine)!
+
+        // Engine goes idle carrying the pending countdown (hands still).
+        engine._testEnterIdle(pending: .init(dueAt: dueBefore, kind: .short))
+
+        // Engagement appears with no input: cancellation, not return.
+        engine._testIdleCancelled()
+
+        let dueAfter = workingDue(engine)
+        #expect(dueAfter != nil, "cancellation must restore working")
+        if let dueAfter {
+            #expect(abs(dueAfter.timeIntervalSince(dueBefore)) < 1,
+                    "due date must be EXACTLY the interrupted one, not a fresh cycle")
+        }
+    }
+
+    /// A real return (fresh input) after >= shortDuration away still credits
+    /// the break: cancellation must not have broken the genuine path.
+    @Test func realReturnStillCreditsBreak() {
+        let engine = makeEngine()
+        engine._testEnterIdle(pending: nil)
+        engine._testReturnedFromIdle(after: 300) // 5 min away, shortDuration 20s
+        let due = workingDue(engine)
+        #expect(due != nil)
+        if let due {
+            #expect(abs(due.timeIntervalSinceNow - 20 * 60) < 2,
+                    "a genuine long absence starts a fresh cycle")
+        }
+    }
+
+    /// isEngaged covers all four engagement signals raw, and ignores toggles.
+    @Test func engagementCoversAllFourSignalsRegardlessOfToggles() async {
+        prefs.pauseOnMic = false
+        prefs.pauseOnCamera = false
+        prefs.pauseOnScreenCapture = false
+        prefs.pauseOnMedia = false
+        prefs.idleEnabled = true
+        await drainMainQueue()
+        let engine = makeEngine()
+
+        // Replace ALL engagement detectors up front: leaving any real one
+        // in the table lets actual machine state (a live call, playing
+        // audio) leak into assertions — the exact leak the detection matrix
+        // test caught last round.
+        let pairs: [(ContextFlag, KeyPath<Preferences, Bool>)] = [
+            (.micInUse, \.pauseOnMic),
+            (.cameraInUse, \.pauseOnCamera),
+            (.screenCaptured, \.pauseOnScreenCapture),
+            (.mediaPlaying, \.pauseOnMedia),
+        ]
+        let fakes = pairs.map { engine.context._testInstallDetector(flag: $0.0, enabled: $0.1) }
+
+        for (i, (flag, _)) in pairs.enumerated() {
+            let fake = fakes[i]
+            #expect(fake.running, "\(flag): engagement detector must run for idle even with toggle off")
+            fake.simulate(detected: true)
+            #expect(engine.context.isEngaged, "\(flag): raw detection must register as engagement")
+            #expect(!engine.context.shouldHold, "\(flag): toggle off, must NOT hold")
+            fake.simulate(detected: false)
+            #expect(!engine.context.isEngaged, "\(flag): must clear")
+        }
+        prefs.idleEnabled = false
+        await drainMainQueue()
+    }
+}

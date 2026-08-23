@@ -65,15 +65,29 @@ final class ContextEngine {
         all.contains { $0.detector.flag == .mediaPlaying && $0.detector.isDetected }
     }
 
+    /// True while ANY engagement signal is detected raw (call, camera,
+    /// screen share, media), regardless of hold toggles. Feeds idle
+    /// suppression: sitting still on a call is not being away. Fullscreen
+    /// and focus apps are deliberately excluded — they say nothing about
+    /// presence when the keyboard is untouched.
+    var isEngaged: Bool {
+        let engagementFlags: Set<ContextFlag> = [.micInUse, .cameraInUse,
+                                                 .screenCaptured, .mediaPlaying]
+        return all.contains { engagementFlags.contains($0.detector.flag) && $0.detector.isDetected }
+    }
+
     /// Start/stop each detector to match its toggle. Idempotent; called on
     /// every preference change so toggles take effect immediately.
     private func applyToggles() {
+        let engagementFlags: Set<ContextFlag> = [.micInUse, .cameraInUse,
+                                                 .screenCaptured, .mediaPlaying]
         for (detector, enabled) in all {
-            // Media also powers idle suppression, so it runs when EITHER
-            // consumer needs it; recompute still gates its flag on the
-            // hold-toggle alone.
+            // Engagement detectors also power idle suppression ("on a call
+            // with hands still is not away"), so they run when EITHER
+            // consumer needs them; recompute still gates flags on the
+            // hold-toggles alone.
             let needed = prefs[keyPath: enabled]
-                || (detector.flag == .mediaPlaying && prefs.idleEnabled)
+                || (engagementFlags.contains(detector.flag) && prefs.idleEnabled)
             if needed { detector.start() } else { detector.stop() }
         }
         deepFocus.listChanged() // hold-list edits apply immediately too

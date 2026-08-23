@@ -85,13 +85,17 @@ final class BreakEngine {
         }
 
         idleMonitor.isSuppressed = { [weak self] in
-            // Watching a video with hands off the keyboard is not "away":
-            // raw detection, deliberately not gated on the pauseOnMedia
-            // toggle (that toggle chooses break-holding, not away semantics).
-            self?.context.isMediaPlaying ?? false
+            // Sitting still on a call, camera on, sharing, or watching is
+            // not "away": raw engagement detection, deliberately not gated
+            // on the hold toggles (those choose break-holding, not away
+            // semantics). Field bug: a 20-min countdown restarted mid-call
+            // because a hands-still meeting crossed the idle threshold and
+            // the "return" credited a break.
+            self?.context.isEngaged ?? false
         }
         idleMonitor.onWentIdle = { [weak self] in self?.enterIdle(since: Date()) }
         idleMonitor.onReturned = { [weak self] away in self?.returnedFromIdle(after: away) }
+        idleMonitor.onIdleCancelled = { [weak self] in self?.idleCancelled() }
         if prefs.idleEnabled { idleMonitor.start() }
 
         // Sleep/lock also mean "away" — treat like idle without threshold.
@@ -176,6 +180,22 @@ final class BreakEngine {
                 enterWorking(due: pending.dueAt, kind: pending.kind)
             } else {
                 // Came due while away: warn now, then break.
+                warnSoon(kind: pending.kind)
+            }
+        } else {
+            scheduleNextBreak(from: Date())
+        }
+    }
+
+    /// The idle call was wrong (engagement with no input). Restore exactly
+    /// what was interrupted: the pending countdown if it's still in the
+    /// future, the overdue grace path if not. Never a fresh cycle.
+    private func idleCancelled() {
+        guard case .idle(_, let pending) = state else { return }
+        if let pending {
+            if pending.dueAt > Date() {
+                enterWorking(due: pending.dueAt, kind: pending.kind)
+            } else {
                 warnSoon(kind: pending.kind)
             }
         } else {
@@ -298,6 +318,13 @@ final class BreakEngine {
     func _testEnterHeld(kind: BreakKind = .short) {
         transition(.heldByContext(kind: kind, overdueSince: Date()))
     }
+
+    /// Test seams for the idle paths (the real entries need HID idle time).
+    func _testEnterIdle(pending: PendingBreak?) {
+        transition(.idle(since: Date(), pending: pending))
+    }
+    func _testIdleCancelled() { idleCancelled() }
+    func _testReturnedFromIdle(after away: TimeInterval) { returnedFromIdle(after: away) }
 #endif
 
     // MARK: - State machine

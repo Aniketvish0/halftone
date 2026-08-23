@@ -8,8 +8,11 @@ import CoreGraphics
 @MainActor
 final class IdleMonitor {
     var onWentIdle: (() -> Void)?
-    /// Passes how long the user was away.
+    /// Passes how long the user was away. Fresh input = a real return.
     var onReturned: ((TimeInterval) -> Void)?
+    /// The idle call was WRONG (engagement appeared with no input: the user
+    /// was on a call/watching all along). Not a return: no break crediting.
+    var onIdleCancelled: (() -> Void)?
     /// Consulted before declaring idle (e.g. media playing = not away).
     var isSuppressed: (() -> Bool)?
 
@@ -45,12 +48,18 @@ final class IdleMonitor {
         let idle = Self.secondsSinceLastInput()
 
         if let start = idleStartedAt {
-            if idle < 2 || (isSuppressed?() ?? false) {
-                // User is back — or media started playing while "away", which
-                // means they were never away (video detection can lag its
-                // 10s assertion poll, so entry suppression alone can miss).
+            if idle < 2 {
+                // Fresh input: a real return.
                 idleStartedAt = nil
                 onReturned?(Date().timeIntervalSince(start))
+                arm(after: max(1, threshold - idle), leeway: .seconds(5))
+            } else if isSuppressed?() ?? false {
+                // Engagement appeared with no input: the idle call was wrong
+                // (they were on a call / watching all along). Retract it
+                // WITHOUT crediting a break — the old path routed this
+                // through onReturned and restarted the whole cycle.
+                idleStartedAt = nil
+                onIdleCancelled?()
                 arm(after: max(1, threshold - idle), leeway: .seconds(5))
             } else {
                 // Poll for return: 2s while freshly away (coffee refill),
