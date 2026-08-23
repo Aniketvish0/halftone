@@ -6,7 +6,7 @@ import SwiftUI
 /// anything else is on screen (break, warning, hold) or the user is away.
 @MainActor
 final class MicroReminders {
-    enum Kind {
+    enum Kind: Hashable {
         case blink, posture
         var symbol: String { self == .blink ? "eye" : "figure.stand" }
         var text: String { self == .blink ? "Blink" : "Sit tall" }
@@ -21,35 +21,58 @@ final class MicroReminders {
     /// The engine gates when reminders may appear.
     var isSuppressed: (() -> Bool)?
 
-    /// The engine reports whether reminders should run at all (plain working
-    /// time). Timers stop entirely outside it: no overnight wakes in
-    /// offHours/idle, and no fires silently dropped by the suppression check.
+    /// Fires that landed while suppressed, shown the moment suppression ends.
+    /// Dropping them starved users who live in holds (fullscreen + video all
+    /// day): every 10-minute blink landed suppressed and silently vanished.
+    private var pending: [Kind] = []
     private(set) var active = false
+
+#if DEBUG
+    /// Test seam: replaces the on-screen flash so tests can count fires.
+    var _testPresent: ((Kind) -> Void)?
+#endif
 
     init() {
         NotificationCenter.default.addObserver(
             forName: Preferences.changed, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyToggles(force: false) }
+            MainActor.assumeIsolated { self?.applyToggles() }
         }
+        applyToggles()
     }
 
-    /// Engine calls this on every state settle.
+    /// Engine calls this whenever the reminder gate changes (state settles
+    /// AND hold changes). Timers keep their phase; going active only flushes
+    /// what was deferred while suppressed.
     func setActive(_ nowActive: Bool) {
         guard nowActive != active else { return }
         active = nowActive
-        applyToggles(force: true)
+        guard nowActive, !pending.isEmpty else { return }
+        let toShow = pending
+        pending = []
+        // Stagger so a blink and a posture deferred together don't collide;
+        // small lead so the flash doesn't land in the same instant the hold
+        // clears (the user is often still mid-motion).
+        for (i, kind) in toShow.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2 + Double(i) * 5) { [weak self] in
+                self?.fire(kind)
+            }
+        }
     }
 
-    private func applyToggles(force: Bool) {
+    private func applyToggles() {
         // Every Preferences.changed post lands here; without the guard, an
-        // unrelated Settings tweak restarts both cadences from zero.
+        // unrelated Settings tweak restarts both cadences from zero. Timers
+        // run 24/7 while their feature is on: a 10-minute cadence with 30s
+        // leeway is noise next to the always-on 2s screen-capture poll, and
+        // stop/start tied to activation kept resetting the phase to zero so
+        // an interval never completed during busy days.
         let now = (prefs.blinkEnabled, prefs.blinkIntervalMin,
                    prefs.postureEnabled, prefs.postureIntervalMin)
-        guard force || applied == nil || applied! != now else { return }
+        guard applied == nil || applied! != now else { return }
         applied = now
-        schedule(blink, enabled: active && now.0, minutes: now.1) { [weak self] in self?.fire(.blink) }
-        schedule(posture, enabled: active && now.2, minutes: now.3) { [weak self] in self?.fire(.posture) }
+        schedule(blink, enabled: now.0, minutes: now.1) { [weak self] in self?.fire(.blink) }
+        schedule(posture, enabled: now.2, minutes: now.3) { [weak self] in self?.fire(.posture) }
     }
 
     private func schedule(_ poller: RepeatingPoller, enabled: Bool, minutes: Int,
@@ -61,8 +84,15 @@ final class MicroReminders {
     }
 
     func fire(_ kind: Kind) {
-        guard !(isSuppressed?() ?? false), flashPanel == nil,
-              let screen = NSScreen.main else { return }
+        if isSuppressed?() ?? false {
+            // Defer, once per kind: shown when the hold/break/absence ends.
+            if !pending.contains(kind) { pending.append(kind) }
+            return
+        }
+#if DEBUG
+        if let seam = _testPresent { seam(kind); return }
+#endif
+        guard flashPanel == nil, let screen = NSScreen.main else { return }
         let panel = OverlayPanel(screen: screen, content: AnyView(MicroReminderView(kind: kind)))
         panel.makePassive(level: .statusBar)
         let size = NSSize(width: 200, height: 56)

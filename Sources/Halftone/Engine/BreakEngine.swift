@@ -76,7 +76,13 @@ final class BreakEngine {
             MainActor.assumeIsolated { self?.systemWoke() }
         }
 
-        context.onChange = { [weak self] in self?.contextChanged() }
+        context.onChange = { [weak self] in
+            guard let self else { return }
+            self.contextChanged()
+            // Hold changes rarely transition (mid-working), but they flip
+            // the reminder gate: re-evaluate it here, not only in syncUI.
+            self.microReminders?.setActive(self.allowsMicroReminders)
+        }
 
         idleMonitor.isSuppressed = { [weak self] in
             // Watching a video with hands off the keyboard is not "away":

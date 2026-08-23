@@ -505,3 +505,45 @@ extension EngineTests {
         }
     }
 }
+
+// MARK: - Micro-reminder delivery lifecycle
+
+@MainActor
+extension EngineTests {
+
+    @Test func reminderFiresWhileWorkingAndDefersWhileSuppressed() async {
+        prefs.blinkEnabled = true
+        await drainMainQueue()
+        let engine = makeEngine()
+        let reminders = MicroReminders()
+        var shown: [MicroReminders.Kind] = []
+        reminders._testPresent = { shown.append($0) }
+        reminders.isSuppressed = { [weak engine] in
+            !(engine?.allowsMicroReminders ?? false)
+        }
+
+        // Plain working: fires show immediately.
+        reminders.fire(.blink)
+        #expect(shown == [.blink], "working: reminder must show")
+
+        // Hold active: fires defer, not drop.
+        engine.context._testSetHold(true)
+        reminders.setActive(engine.allowsMicroReminders)
+        reminders.fire(.blink)
+        reminders.fire(.posture)
+        reminders.fire(.blink) // duplicate while suppressed: dedup to one
+        #expect(shown == [.blink], "suppressed: nothing new shows yet")
+
+        // Hold clears: deferred reminders flush (staggered via asyncAfter).
+        engine.context._testSetHold(false)
+        reminders.setActive(engine.allowsMicroReminders)
+        // First flush lands at +2s; drain the main queue past it.
+        try? await Task.sleep(for: .seconds(2.3))
+        await drainMainQueue()
+        #expect(shown.count >= 2, "deferred blink must flush after release (got \(shown))")
+        #expect(shown.filter { $0 == .blink }.count == 2, "blink deferred once, not twice")
+
+        prefs.blinkEnabled = false
+        await drainMainQueue()
+    }
+}
