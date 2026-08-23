@@ -56,11 +56,22 @@ final class ContextEngine {
         applyToggles()
     }
 
+    /// True while media is detected playing, INDEPENDENT of whether the
+    /// user wants video to hold breaks. Feeds idle suppression: "watching a
+    /// video with hands off the keyboard is not away" must hold even when
+    /// the Video playing hold-toggle is off.
+    var isMediaPlaying: Bool { media.isDetected }
+
     /// Start/stop each detector to match its toggle. Idempotent; called on
     /// every preference change so toggles take effect immediately.
     private func applyToggles() {
         for (detector, enabled) in all {
-            if prefs[keyPath: enabled] { detector.start() } else { detector.stop() }
+            // Media also powers idle suppression, so it runs when EITHER
+            // consumer needs it; recompute still gates its flag on the
+            // hold-toggle alone.
+            let needed = prefs[keyPath: enabled]
+                || (detector.flag == .mediaPlaying && prefs.idleEnabled)
+            if needed { detector.start() } else { detector.stop() }
         }
         deepFocus.listChanged() // hold-list edits apply immediately too
         // The user flipped a switch: that's an instruction, not an activity
@@ -152,6 +163,9 @@ final class ContextEngine {
             onChange?()
         }
     }
+
+    /// Test seam: the real media detector, for driving raw detection.
+    var _testMediaDetector: MediaPlaybackDetector { media }
 
     /// Registers a fake detector bound to a preference key path. Test-only.
     @discardableResult

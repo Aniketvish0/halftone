@@ -53,6 +53,7 @@ final class BreakEngine {
     private var pausedRemaining: (kind: BreakKind, remaining: TimeInterval)?
 
     private var awaySince: Date?
+    private let wakeRecovery = RepeatingPoller()
 
     private let prefs = Preferences.shared
     private var timer: DispatchSourceTimer?
@@ -77,8 +78,10 @@ final class BreakEngine {
         context.onChange = { [weak self] in self?.contextChanged() }
 
         idleMonitor.isSuppressed = { [weak self] in
-            // Watching a video with hands off the keyboard is not "away".
-            self?.context.activeFlags.contains(.mediaPlaying) ?? false
+            // Watching a video with hands off the keyboard is not "away":
+            // raw detection, deliberately not gated on the pauseOnMedia
+            // toggle (that toggle chooses break-holding, not away semantics).
+            self?.context.isMediaPlaying ?? false
         }
         idleMonitor.onWentIdle = { [weak self] in self?.enterIdle(since: Date()) }
         idleMonitor.onReturned = { [weak self] away in self?.returnedFromIdle(after: away) }
@@ -181,7 +184,13 @@ final class BreakEngine {
     }
 
     private func systemCameBack() {
-        guard let since = awaySince else { return }
+        wakeRecovery.stop()
+        // Fall back to the idle state's own timestamp: the unlock notification
+        // can arrive when awaySince was never set (idle entered via the
+        // IdleMonitor, then locked) or already consumed.
+        var idleSince: Date?
+        if case .idle(let since, _) = state { idleSince = since }
+        guard let since = awaySince ?? idleSince else { return }
         awaySince = nil
         if case .idle = state {
             returnedFromIdle(after: Date().timeIntervalSince(since))
@@ -190,12 +199,31 @@ final class BreakEngine {
 
     /// Wake without a lock (no password after sleep, auto-login) never posts
     /// screenIsUnlocked — treat wake itself as the return unless the screen is
-    /// actually still locked, in which case the unlock notification finishes.
+    /// actually still locked. The unlock notification normally finishes the
+    /// job, but its delivery is not guaranteed (observed: engine stuck on the
+    /// moon icon for minutes after a next-day wake), so a cheap poll backstops
+    /// it: unlocked + fresh input = the user is back, notification or not.
     private func systemWoke() {
         if awaySince != nil, !CGSession.flag("CGSSessionScreenIsLocked") {
             systemCameBack()
         } else {
             evaluate()
+            startWakeRecoveryIfIdle()
+        }
+    }
+
+    private func startWakeRecoveryIfIdle() {
+        guard case .idle = state else { return }
+        wakeRecovery.start(interval: 2, leeway: .seconds(1), firstDelay: 2) { [weak self] in
+            guard let self else { return }
+            guard case .idle = self.state else {
+                self.wakeRecovery.stop()
+                return
+            }
+            if !CGSession.flag("CGSSessionScreenIsLocked"),
+               IdleMonitor.secondsSinceLastInput() < 2 {
+                self.systemCameBack()
+            }
         }
     }
 

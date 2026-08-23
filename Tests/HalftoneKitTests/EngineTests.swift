@@ -349,3 +349,44 @@ extension EngineTests {
         await drainMainQueue()
     }
 }
+
+// MARK: - Idle suppression is independent of the hold toggle
+
+@MainActor
+extension EngineTests {
+
+    /// Field bug: with 'Video playing' hold-toggle OFF, watching YouTube
+    /// counted as being away (moon icon while actively watching). The
+    /// suppression signal must track raw detection, not the hold toggle.
+    @Test func mediaSuppressesIdleEvenWhenHoldToggleIsOff() async {
+        prefs.pauseOnMedia = false
+        prefs.idleEnabled = true
+        await drainMainQueue()
+        let engine = makeEngine()
+
+        #expect(engine.context._testMediaDetector.isRunning,
+                "media detector must run for idle suppression when idle is on")
+
+        engine.context._testMediaDetector._testSetDetected(true)
+        #expect(engine.context.isMediaPlaying,
+                "raw detection must surface with the hold toggle off")
+        #expect(!engine.context.activeFlags.contains(.mediaPlaying),
+                "but it must NOT hold breaks (toggle is off)")
+        #expect(!engine.context.shouldHold)
+
+        engine.context._testMediaDetector._testSetDetected(false)
+        prefs.idleEnabled = false
+        await drainMainQueue()
+    }
+
+    /// Both consumers off: the detector must actually stop.
+    @Test func mediaDetectorStopsWhenNoConsumerNeedsIt() async {
+        prefs.pauseOnMedia = false
+        prefs.idleEnabled = false
+        await drainMainQueue()
+        let engine = makeEngine()
+        #expect(!engine.context._testMediaDetector.isRunning,
+                "no hold toggle, no idle: detector must not run")
+        #expect(!engine.context.isMediaPlaying)
+    }
+}

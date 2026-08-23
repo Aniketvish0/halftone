@@ -96,7 +96,7 @@ struct SmartPausePane: View {
                     Label { Text("Screen shared or recording"); Text("Zoom/Meet shares, OBS, QuickTime, screenshots apps").font(.caption).foregroundStyle(.secondary) } icon: { Image(systemName: "rectangle.dashed.badge.record") }
                 }
                 Toggle(isOn: $prefs.pauseOnMedia) {
-                    Label { Text("Video playing"); Text("Playing audio while keeping the display awake").font(.caption).foregroundStyle(.secondary) } icon: { Image(systemName: "play.rectangle.fill") }
+                    Label { Text("Video playing"); Text("Playing audio while keeping the display awake. Off stops holding breaks only; video still counts as present, not away.").font(.caption).foregroundStyle(.secondary) } icon: { Image(systemName: "play.rectangle.fill") }
                 }
                 Toggle(isOn: $prefs.pauseOnFullscreen) {
                     Label { Text("Fullscreen apps"); Text("Games, presentations, fullscreen video").font(.caption).foregroundStyle(.secondary) } icon: { Image(systemName: "arrow.up.left.and.arrow.down.right") }

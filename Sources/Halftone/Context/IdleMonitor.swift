@@ -45,8 +45,10 @@ final class IdleMonitor {
         let idle = Self.secondsSinceLastInput()
 
         if let start = idleStartedAt {
-            if idle < 2 {
-                // User is back.
+            if idle < 2 || (isSuppressed?() ?? false) {
+                // User is back — or media started playing while "away", which
+                // means they were never away (video detection can lag its
+                // 10s assertion poll, so entry suppression alone can miss).
                 idleStartedAt = nil
                 onReturned?(Date().timeIntervalSince(start))
                 arm(after: max(1, threshold - idle), leeway: .seconds(5))
