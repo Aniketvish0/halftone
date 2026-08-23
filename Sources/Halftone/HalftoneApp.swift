@@ -9,13 +9,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController!
     private var overlay: OverlayController!
     private var warningPill: WarningPillController!
+    private var ambientGlow: AmbientGlowController!
+    private var reminders: MicroReminders!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         engine = BreakEngine()
         overlay = OverlayController(engine: engine)
         warningPill = WarningPillController(engine: engine)
+        ambientGlow = AmbientGlowController()
         engine.overlayController = overlay
         engine.warningPill = warningPill
+        engine.ambientGlow = ambientGlow
+        reminders = MicroReminders()
+        reminders.isSuppressed = { [weak engine] in
+            guard let engine else { return true }
+            if engine.context.shouldHold { return true }
+            switch engine.state {
+            case .working: return false
+            default: return true // warning/break/idle/paused/offHours/held
+            }
+        }
         menuBar = MenuBarController(engine: engine)
         engine.start()
     }
@@ -59,11 +72,19 @@ func runShowcase(_ what: String) {
     let engine = BreakEngine()
     let overlay = OverlayController(engine: engine)
     let pill = WarningPillController(engine: engine)
+    let glow = AmbientGlowController()
+    let reminders = MicroReminders()
     switch what {
     case "overlay":
         overlay.show(kind: .short, endsAt: Date().addingTimeInterval(20))
     case "pill":
         pill.show(breakAt: Date().addingTimeInterval(30))
+    case "glow":
+        glow.show(breakAt: Date().addingTimeInterval(10)) // 10s ramp for review
+    case "blink":
+        reminders.fire(.blink)
+    case "posture":
+        reminders.fire(.posture)
     default:
         print("unknown showcase: \(what)"); exit(1)
     }

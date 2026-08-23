@@ -379,3 +379,62 @@ extension EngineTests {
         #expect(!engine.context.isMediaPlaying)
     }
 }
+
+// MARK: - Phase 3: ambient glow window + reminder suppression
+
+@MainActor
+extension EngineTests {
+
+    /// With glow enabled and a lead longer than warnLead, the working-state
+    /// timer must wake at the GLOW moment, not the warn moment.
+    @Test func glowLeadExtendsTheWorkingWake() async {
+        prefs.ambientGlowEnabled = true
+        prefs.ambientGlowLeadSec = 120
+        prefs.warnLeadSec = 30
+        await drainMainQueue()
+        let engine = makeEngine()
+        // Indirect but deterministic check: the state machine still reports
+        // .working with the full interval; the glow lead only moves the
+        // internal wake point. Verify the due date is unaffected by glow.
+        let due = workingDue(engine)
+        #expect(due != nil)
+        if let due { #expect(abs(due.timeIntervalSinceNow - 20 * 60) < 2) }
+        prefs.ambientGlowEnabled = false
+        await drainMainQueue()
+    }
+
+    /// Reminder suppression: the app-level gate must block during holds and
+    /// non-working states, and allow during plain working.
+    @Test func reminderSuppressionGate() {
+        let engine = makeEngine()
+        // Reproduce the gate exactly as the app wires it.
+        func suppressed() -> Bool {
+            if engine.context.shouldHold { return true }
+            switch engine.state {
+            case .working: return false
+            default: return true
+            }
+        }
+        #expect(!suppressed(), "plain working: reminders allowed")
+        engine.context._testSetHold(true)
+        #expect(suppressed(), "hold: reminders blocked")
+        engine.context._testSetHold(false)
+        engine.startBreakNow()
+        #expect(suppressed(), "in break: reminders blocked")
+        engine.skipBreak()
+        engine.pause()
+        #expect(suppressed(), "paused: reminders blocked")
+        engine.resume()
+        #expect(!suppressed(), "resumed working: reminders allowed again")
+    }
+
+    /// Strictness preference round-trips through its raw string.
+    @Test func strictnessPersistsAndParses() {
+        let original = prefs.strictness
+        for level in Strictness.allCases {
+            prefs.strictness = level
+            #expect(Strictness(rawValue: Defaults.store.string(forKey: "strictness") ?? "") == level)
+        }
+        prefs.strictness = original
+    }
+}

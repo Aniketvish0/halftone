@@ -30,29 +30,8 @@ struct BreakOverlayView: View {
 
                 Spacer()
 
-                GlassEffectContainer {
-                    HStack(spacing: 14) {
-                        Button {
-                            onSnooze()
-                        } label: {
-                            Label("Snooze 15 min", systemImage: "clock.arrow.circlepath")
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                        }
-                        .buttonStyle(.glass)
-
-                        Button {
-                            onSkip()
-                        } label: {
-                            Label("Skip", systemImage: "forward.end")
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                        }
-                        .buttonStyle(.glass)
-                    }
-                }
-                .controlSize(.large)
-                .padding(.bottom, 64)
+                BreakControls(onSkip: onSkip, onSnooze: onSnooze)
+                    .padding(.bottom, 64)
             }
             .padding(40)
         }
@@ -98,5 +77,95 @@ private struct AnimatedMesh: View {
         }
         .animation(.easeInOut(duration: 11).repeatForever(autoreverses: true), value: breathe)
         .onAppear { breathe = true }
+    }
+}
+
+
+/// Skip/snooze controls honoring the strictness preference:
+/// gentle = immediate; delayed = appear after skipDelaySec; hold = 2s
+/// press-and-hold ring on Skip, no snooze.
+struct BreakControls: View {
+    let onSkip: () -> Void
+    let onSnooze: () -> Void
+
+    private let strictness = Preferences.shared.strictness
+    private let delay = TimeInterval(Preferences.shared.skipDelaySec)
+    @State private var buttonsAvailable = false
+    @State private var holdProgress: CGFloat = 0
+
+    var body: some View {
+        GlassEffectContainer {
+            Group {
+                switch strictness {
+                case .easy:
+                    buttons
+                case .delayed:
+                    if buttonsAvailable {
+                        buttons.transition(.opacity)
+                    } else {
+                        Text("Controls in a moment…")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .padding(.vertical, 12)
+                    }
+                case .hold:
+                    holdToSkip
+                }
+            }
+        }
+        .controlSize(.large)
+        .onAppear {
+            if strictness == .delayed {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    withAnimation(.easeIn(duration: 0.4)) { buttonsAvailable = true }
+                }
+            }
+        }
+    }
+
+    private var buttons: some View {
+        HStack(spacing: 14) {
+            Button {
+                onSnooze()
+            } label: {
+                Label("Snooze 15 min", systemImage: "clock.arrow.circlepath")
+                    .padding(.horizontal, 6).padding(.vertical, 4)
+            }
+            .buttonStyle(.glass)
+
+            Button {
+                onSkip()
+            } label: {
+                Label("Skip", systemImage: "forward.end")
+                    .padding(.horizontal, 6).padding(.vertical, 4)
+            }
+            .buttonStyle(.glass)
+        }
+    }
+
+    private var holdToSkip: some View {
+        Label("Hold to skip", systemImage: "forward.end")
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background {
+                Capsule()
+                    .trim(from: 0, to: holdProgress)
+                    .stroke(.white.opacity(0.9), lineWidth: 2)
+            }
+            .glassEffect(.regular, in: .capsule)
+            .gesture(
+                LongPressGesture(minimumDuration: 2.0)
+                    .onEnded { _ in onSkip() }
+                    .simultaneously(with:
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in
+                                if holdProgress == 0 {
+                                    withAnimation(.linear(duration: 2.0)) { holdProgress = 1 }
+                                }
+                            }
+                            .onEnded { _ in
+                                withAnimation(.easeOut(duration: 0.2)) { holdProgress = 0 }
+                            }
+                    )
+            )
     }
 }

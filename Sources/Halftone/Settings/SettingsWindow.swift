@@ -32,6 +32,7 @@ struct SettingsView: View {
             Tab("Breaks", systemImage: "timer") { BreaksPane() }
             Tab("Smart Pause", systemImage: "person.wave.2") { SmartPausePane() }
             Tab("Schedule", systemImage: "calendar.badge.clock") { SchedulePane() }
+            Tab("Feel", systemImage: "sparkles") { FeelPane() }
         }
         .frame(width: 560, height: 560)
     }
@@ -234,5 +235,62 @@ struct MinutePicker: View {
         }
         .labelsHidden()
         .frame(width: 90)
+    }
+}
+
+
+struct FeelPane: View {
+    @State private var prefs = Preferences.shared
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Glow in from the edges before a break", isOn: $prefs.ambientGlowEnabled)
+                Stepper("Start \(prefs.ambientGlowLeadSec / 60) min \(prefs.ambientGlowLeadSec % 60) s before",
+                        value: $prefs.ambientGlowLeadSec, in: 30...600, step: 30)
+                    .disabled(!prefs.ambientGlowEnabled)
+            } header: {
+                Text("Ambient warning")
+            } footer: {
+                Text("A soft vignette ramps up in peripheral vision instead of a popup. Click-through; the pill still appears at the usual time.")
+            }
+
+            Section("Micro-reminders") {
+                Toggle("Blink reminder", isOn: $prefs.blinkEnabled)
+                Stepper("Every \(prefs.blinkIntervalMin) min",
+                        value: $prefs.blinkIntervalMin, in: 2...60, step: 2)
+                    .disabled(!prefs.blinkEnabled)
+                Toggle("Posture reminder", isOn: $prefs.postureEnabled)
+                Stepper("Every \(prefs.postureIntervalMin) min",
+                        value: $prefs.postureIntervalMin, in: 10...120, step: 5)
+                    .disabled(!prefs.postureEnabled)
+            }
+
+            Section {
+                Picker("When a break screen is up", selection: $prefs.strictness) {
+                    ForEach(Strictness.allCases, id: \.self) { level in
+                        Text(level.displayName).tag(level)
+                    }
+                }
+                .pickerStyle(.segmented)
+                if prefs.strictness == .delayed {
+                    Stepper("Show controls after \(prefs.skipDelaySec) s",
+                            value: $prefs.skipDelaySec, in: 3...30, step: 1)
+                }
+            } header: {
+                Text("Strictness")
+            } footer: {
+                Text(strictnessFooter)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var strictnessFooter: String {
+        switch prefs.strictness {
+        case .easy: "Skip and snooze are always available."
+        case .delayed: "Buttons appear after a pause, so skipping is a decision instead of a reflex."
+        case .hold: "Skipping takes a two-second hold. No snooze from the break screen."
+        }
     }
 }

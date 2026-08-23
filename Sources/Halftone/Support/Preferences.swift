@@ -1,6 +1,23 @@
 import Foundation
 import Observation
 
+enum Strictness: String, CaseIterable {
+    /// Skip/snooze always available.
+    case easy
+    /// Skip/snooze appear only after a delay (dodge the reflex-skip).
+    case delayed
+    /// Skip requires press-and-hold; no snooze from the overlay.
+    case hold
+
+    var displayName: String {
+        switch self {
+        case .easy: "Gentle"
+        case .delayed: "Delayed buttons"
+        case .hold: "Hold to skip"
+        }
+    }
+}
+
 /// All user preferences. Single source of truth backed by UserDefaults.
 /// Views bind to this; the engine re-reads on change notification.
 @Observable
@@ -34,6 +51,14 @@ final class Preferences {
             Key.officeEndMin: 18 * 60,
             Key.officeDays: [2, 3, 4, 5, 6], // Mon-Fri (Calendar weekday numbers)
             Key.deepFocusApps: [String](),
+            Key.ambientGlowEnabled: true,
+            Key.ambientGlowLeadSec: 120,
+            Key.blinkEnabled: false,
+            Key.blinkIntervalMin: 10,
+            Key.postureEnabled: false,
+            Key.postureIntervalMin: 45,
+            Key.strictness: Strictness.easy.rawValue,
+            Key.skipDelaySec: 8,
         ])
         shortIntervalMin = d.integer(forKey: Key.shortIntervalMin)
         shortDurationSec = d.integer(forKey: Key.shortDurationSec)
@@ -56,6 +81,14 @@ final class Preferences {
         officeEndMin = d.integer(forKey: Key.officeEndMin)
         officeDays = Set((d.array(forKey: Key.officeDays) as? [Int]) ?? [2,3,4,5,6])
         deepFocusApps = Set((d.array(forKey: Key.deepFocusApps) as? [String]) ?? [])
+        ambientGlowEnabled = d.bool(forKey: Key.ambientGlowEnabled)
+        ambientGlowLeadSec = d.integer(forKey: Key.ambientGlowLeadSec)
+        blinkEnabled = d.bool(forKey: Key.blinkEnabled)
+        blinkIntervalMin = d.integer(forKey: Key.blinkIntervalMin)
+        postureEnabled = d.bool(forKey: Key.postureEnabled)
+        postureIntervalMin = d.integer(forKey: Key.postureIntervalMin)
+        strictness = Strictness(rawValue: d.string(forKey: Key.strictness) ?? "") ?? .easy
+        skipDelaySec = d.integer(forKey: Key.skipDelaySec)
     }
 
     private enum Key {
@@ -80,6 +113,14 @@ final class Preferences {
         static let officeEndMin = "officeEndMin"
         static let officeDays = "officeDays"
         static let deepFocusApps = "deepFocusApps"
+        static let ambientGlowEnabled = "ambientGlowEnabled"
+        static let ambientGlowLeadSec = "ambientGlowLeadSec"
+        static let blinkEnabled = "blinkEnabled"
+        static let blinkIntervalMin = "blinkIntervalMin"
+        static let postureEnabled = "postureEnabled"
+        static let postureIntervalMin = "postureIntervalMin"
+        static let strictness = "strictness"
+        static let skipDelaySec = "skipDelaySec"
     }
 
     var shortIntervalMin: Int { didSet { save(Key.shortIntervalMin, shortIntervalMin) } }
@@ -112,6 +153,21 @@ final class Preferences {
 
     // Deep-focus apps (bundle IDs that hold breaks while frontmost)
     var deepFocusApps: Set<String> { didSet { save(Key.deepFocusApps, Array(deepFocusApps)) } }
+
+    // Ambient pre-break glow: screen-edge pressure that ramps toward the break
+    var ambientGlowEnabled: Bool { didSet { save(Key.ambientGlowEnabled, ambientGlowEnabled) } }
+    var ambientGlowLeadSec: Int { didSet { save(Key.ambientGlowLeadSec, ambientGlowLeadSec) } }
+
+    // Blink / posture micro-reminders
+    var blinkEnabled: Bool { didSet { save(Key.blinkEnabled, blinkEnabled) } }
+    var blinkIntervalMin: Int { didSet { save(Key.blinkIntervalMin, blinkIntervalMin) } }
+    var postureEnabled: Bool { didSet { save(Key.postureEnabled, postureEnabled) } }
+    var postureIntervalMin: Int { didSet { save(Key.postureIntervalMin, postureIntervalMin) } }
+
+    // Break strictness
+    var strictness: Strictness { didSet { save(Key.strictness, strictness.rawValue) } }
+    /// Seconds before Skip/Snooze appear when strictness == .delayed.
+    var skipDelaySec: Int { didSet { save(Key.skipDelaySec, skipDelaySec) } }
 
     private var postPending = false
 

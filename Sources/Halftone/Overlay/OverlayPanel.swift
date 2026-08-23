@@ -10,6 +10,10 @@ final class OverlayPanel: NSPanel {
     /// engine, leaving state and UI disagreeing).
     var onEscape: (() -> Void)?
 
+    /// Passive panels (glow, reminders) refuse key status so the hosting view
+    /// never draws a focus ring.
+    var refusesKey = false
+
     init(screen: NSScreen, content: AnyView) {
         super.init(
             contentRect: screen.frame,
@@ -29,7 +33,7 @@ final class OverlayPanel: NSPanel {
         setFrame(screen.frame, display: true)
     }
 
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { !refusesKey }
     override var canBecomeMain: Bool { false }
 
     override func cancelOperation(_ sender: Any?) {

@@ -59,6 +59,7 @@ final class BreakEngine {
 
     var overlayController: OverlayController?
     var warningPill: WarningPillController?
+    var ambientGlow: AmbientGlowController?
     let context = ContextEngine()
     private let idleMonitor = IdleMonitor()
 
@@ -114,8 +115,12 @@ final class BreakEngine {
                 transition(.heldByContext(kind: kind, overdueSince: breakAt))
             }
         case .working(let due, let kind):
-            if context.shouldHold, due.timeIntervalSinceNow < prefs.warnLead {
-                transition(.heldByContext(kind: kind, overdueSince: due))
+            if context.shouldHold {
+                // Glow mustn't keep ramping toward a break that will be held.
+                ambientGlow?.hide()
+                if due.timeIntervalSinceNow < prefs.warnLead {
+                    transition(.heldByContext(kind: kind, overdueSince: due))
+                }
             }
         case .heldByContext(let kind, _):
             if !context.shouldHold {
@@ -368,6 +373,13 @@ final class BreakEngine {
         } else {
             warningPill?.hide()
         }
+        switch state {
+        case .warning, .working:
+            break // glow lifecycle handled by evaluate()/glow window entry
+        default:
+            ambientGlow?.hide()
+        }
+        if case .inBreak = state { ambientGlow?.hide() }
         if case .inBreak(let kind, let endsAt) = state {
             overlayController?.show(kind: kind, endsAt: endsAt)
         } else {
@@ -456,7 +468,8 @@ final class BreakEngine {
         let (fireAt, leeway): (Date?, DispatchTimeInterval) = {
             switch state {
             case .working(let due, _):
-                let warnAt = due.addingTimeInterval(-prefs.warnLead)
+                let lead = max(prefs.warnLead, prefs.ambientGlowEnabled ? TimeInterval(prefs.ambientGlowLeadSec) : 0)
+                let warnAt = due.addingTimeInterval(-lead)
                 return (warnAt > Date() ? warnAt : due, .seconds(5))
             case .warning(let breakAt, _):
                 return (breakAt, .milliseconds(500))
@@ -490,11 +503,15 @@ final class BreakEngine {
         switch state {
         case .working(let due, let kind):
             let warnAt = due.addingTimeInterval(-prefs.warnLead)
+            let glowAt = due.addingTimeInterval(-TimeInterval(prefs.ambientGlowLeadSec))
             if now >= due {
                 beginBreak(kind: kind)
             } else if now >= warnAt {
                 enterWarning(breakAt: due, kind: kind)
             } else {
+                if prefs.ambientGlowEnabled, now >= glowAt, !context.shouldHold {
+                    ambientGlow?.show(breakAt: due)
+                }
                 armTimer()
             }
         case .warning(let breakAt, let kind):
