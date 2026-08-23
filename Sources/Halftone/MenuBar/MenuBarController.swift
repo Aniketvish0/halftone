@@ -115,6 +115,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 final class AutoWidthHostingView<V: View>: NSHostingView<V> {
     var onWidthChange: ((CGFloat) -> Void)?
     private var lastWidth: CGFloat = 0
+    private var occlusionObserver: NSObjectProtocol?
 
     override func layout() {
         super.layout()
@@ -126,6 +127,27 @@ final class AutoWidthHostingView<V: View>: NSHostingView<V> {
         frame.size.width = width
         onWidthChange?(width)
     }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let o = occlusionObserver { NotificationCenter.default.removeObserver(o) }
+        occlusionObserver = nil
+        guard let window else { return }
+        // A width measured while the status window was occluded (display
+        // asleep, fullscreen app) can be stale; the change-guard would then
+        // pin the item at the wrong length until something forced layout —
+        // which is why clicking the icon "fixed" it. Re-measure on visible.
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.window?.occlusionState.contains(.visible) == true else { return }
+                self.lastWidth = 0
+                self.needsLayout = true
+            }
+        }
+    }
 }
 
 /// The menu-bar label. Countdown text is rendered BY THE SYSTEM
@@ -134,67 +156,36 @@ struct MenuBarLabel: View {
     let engine: BreakEngine
 
     var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: symbolName)
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(size: 13, weight: .medium))
+        // Everything, including the countdown range, re-derives each minute
+        // (and on every @Observable state change). A reading taken at a bad
+        // moment can therefore never stick.
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let display = MenuBarDisplay.compute(
+                state: engine.state,
+                shouldHold: engine.context.shouldHold,
+                holdReasons: engine.context.holdReasons,
+                showCountdown: Preferences.shared.showCountdownInMenuBar,
+                now: context.date)
 
-            if Preferences.shared.showCountdownInMenuBar, let range = countdownRange {
-                // Energy: per-second ticking redraws our status window ~3x/s
-                // (0.3-0.4% CPU). So render "18m" via a once-a-minute timeline
-                // while >60s remain; the live ticker only in the final minute.
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    Group {
-                        if range.upperBound.timeIntervalSince(context.date) > 60 {
-                            Text(minutesLabel(until: range.upperBound, from: context.date))
-                        } else {
-                            Text(timerInterval: range, countsDown: true, showsHours: false)
-                        }
-                    }
-                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+            HStack(spacing: 3) {
+                Image(systemName: display.symbol)
+                    .symbolRenderingMode(.hierarchical)
+                    .font(.system(size: 13, weight: .medium))
+
+                switch display.countdown {
+                case .none:
+                    EmptyView()
+                case .minutes(let m):
+                    Text("\(m)m")
+                        .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                case .ticker(let end):
+                    Text(timerInterval: context.date...max(end, context.date),
+                         countsDown: true, showsHours: false)
+                        .font(.system(size: 11.5, weight: .medium).monospacedDigit())
                 }
             }
-        }
-        .padding(.horizontal, 2)
-        .frame(maxHeight: .infinity)
-    }
-
-    /// Icon for the strongest active hold reason: person = call, record badge
-    /// = screen share, video = camera, play = video watching, etc. Mapping
-    /// every reason to the call icon made "watching YouTube" read as the app
-    /// wrongly claiming a call.
-    private var holdSymbol: String {
-        engine.context.holdReasons.min(by: { $0.priority < $1.priority })?.symbolName
-            ?? "circle.lefthalf.filled" // unreachable; fail neutral, not as a phantom call
-    }
-
-    private var symbolName: String {
-        // A detected hold shows its reason icon immediately, even while the
-        // countdown is still running. "I see what you're doing, the break
-        // will wait" must be visible before the break is due, not only after.
-        switch engine.state {
-        case .working, .warning:
-            engine.context.shouldHold ? holdSymbol : "circle.lefthalf.filled"
-        case .inBreak: "eye"
-        case .pausedByUser: "pause.circle"
-        case .heldByContext: holdSymbol
-        case .idle: "moon.zzz"
-        case .offHours: "sunset"
-        }
-    }
-
-    private func minutesLabel(until end: Date, from now: Date) -> String {
-        let mins = Int((end.timeIntervalSince(now) / 60).rounded(.up))
-        return "\(mins)m"
-    }
-
-    private var countdownRange: ClosedRange<Date>? {
-        let now = Date()
-        switch engine.state {
-        case .working(let end, _), .warning(let end, _), .inBreak(_, let end):
-            return end > now ? now...end : nil
-        default:
-            return nil
+            .padding(.horizontal, 2)
+            .frame(maxHeight: .infinity)
         }
     }
 }
