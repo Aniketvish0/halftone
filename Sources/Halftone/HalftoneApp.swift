@@ -22,13 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.ambientGlow = ambientGlow
         reminders = MicroReminders()
         reminders.isSuppressed = { [weak engine] in
-            guard let engine else { return true }
-            if engine.context.shouldHold { return true }
-            switch engine.state {
-            case .working: return false
-            default: return true // warning/break/idle/paused/offHours/held
-            }
+            !(engine?.allowsMicroReminders ?? false)
         }
+        engine.microReminders = reminders
         menuBar = MenuBarController(engine: engine)
         engine.start()
     }

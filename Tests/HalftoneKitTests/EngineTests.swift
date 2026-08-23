@@ -385,9 +385,8 @@ extension EngineTests {
 @MainActor
 extension EngineTests {
 
-    /// With glow enabled and a lead longer than warnLead, the working-state
-    /// timer must wake at the GLOW moment, not the warn moment.
-    @Test func glowLeadExtendsTheWorkingWake() async {
+    /// Glow lead must not move the due date (it only adds a wake milestone).
+    @Test func glowLeadDoesNotMoveTheDueDate() async {
         prefs.ambientGlowEnabled = true
         prefs.ambientGlowLeadSec = 120
         prefs.warnLeadSec = 30
@@ -403,29 +402,21 @@ extension EngineTests {
         await drainMainQueue()
     }
 
-    /// Reminder suppression: the app-level gate must block during holds and
-    /// non-working states, and allow during plain working.
+    /// Reminder suppression: asserts the engine's OWN gate (the one the app
+    /// wires), not a copy of its logic.
     @Test func reminderSuppressionGate() {
         let engine = makeEngine()
-        // Reproduce the gate exactly as the app wires it.
-        func suppressed() -> Bool {
-            if engine.context.shouldHold { return true }
-            switch engine.state {
-            case .working: return false
-            default: return true
-            }
-        }
-        #expect(!suppressed(), "plain working: reminders allowed")
+        #expect(engine.allowsMicroReminders, "plain working: reminders allowed")
         engine.context._testSetHold(true)
-        #expect(suppressed(), "hold: reminders blocked")
+        #expect(!engine.allowsMicroReminders, "hold: reminders blocked")
         engine.context._testSetHold(false)
         engine.startBreakNow()
-        #expect(suppressed(), "in break: reminders blocked")
+        #expect(!engine.allowsMicroReminders, "in break: reminders blocked")
         engine.skipBreak()
         engine.pause()
-        #expect(suppressed(), "paused: reminders blocked")
+        #expect(!engine.allowsMicroReminders, "paused: reminders blocked")
         engine.resume()
-        #expect(!suppressed(), "resumed working: reminders allowed again")
+        #expect(engine.allowsMicroReminders, "resumed working: reminders allowed again")
     }
 
     /// Strictness preference round-trips through its raw string.
@@ -436,5 +427,26 @@ extension EngineTests {
             #expect(Strictness(rawValue: Defaults.store.string(forKey: "strictness") ?? "") == level)
         }
         prefs.strictness = original
+    }
+}
+
+// MARK: - Ambient glow controller contracts
+
+@MainActor
+extension EngineTests {
+
+    /// evaluate() may run several times inside the glow window; the ramp
+    /// must not restart for the same target break.
+    @Test func glowShowIsIdempotentPerTarget() {
+        let glow = AmbientGlowController()
+        let target = Date().addingTimeInterval(90)
+        glow.show(breakAt: target)
+        let first = glow._testPanelIDs
+        glow.show(breakAt: target)                    // same target: no rebuild
+        #expect(glow._testPanelIDs == first, "same-target show must not rebuild panels")
+        glow.show(breakAt: target.addingTimeInterval(300)) // new target: rebuild
+        #expect(glow._testPanelIDs != first, "new target must rebuild")
+        glow.hide()
+        #expect(glow._testPanelIDs.isEmpty)
     }
 }

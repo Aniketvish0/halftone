@@ -88,39 +88,37 @@ struct BreakControls: View {
     let onSkip: () -> Void
     let onSnooze: () -> Void
 
-    private let strictness = Preferences.shared.strictness
-    private let delay = TimeInterval(Preferences.shared.skipDelaySec)
     @State private var buttonsAvailable = false
-    @State private var holdProgress: CGFloat = 0
+    @State private var holding = false
 
     var body: some View {
+        // Read live so a Settings change applies to the current break too.
+        let strictness = Preferences.shared.strictness
+        let delay = TimeInterval(Preferences.shared.skipDelaySec)
+
         GlassEffectContainer {
-            Group {
-                switch strictness {
-                case .easy:
-                    buttons
-                case .delayed:
-                    if buttonsAvailable {
-                        buttons.transition(.opacity)
-                    } else {
-                        Text("Controls in a moment…")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.55))
-                            .padding(.vertical, 12)
-                    }
-                case .hold:
-                    holdToSkip
+            switch strictness {
+            case .easy:
+                buttons
+            case .delayed:
+                if buttonsAvailable {
+                    buttons.transition(.opacity)
+                } else {
+                    Text("Controls in a moment…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .padding(.vertical, 12)
+                        .task {
+                            // task cancels itself when the overlay tears down.
+                            try? await Task.sleep(for: .seconds(delay))
+                            withAnimation(.easeIn(duration: 0.4)) { buttonsAvailable = true }
+                        }
                 }
+            case .hold:
+                holdToSkip
             }
         }
         .controlSize(.large)
-        .onAppear {
-            if strictness == .delayed {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    withAnimation(.easeIn(duration: 0.4)) { buttonsAvailable = true }
-                }
-            }
-        }
     }
 
     private var buttons: some View {
@@ -144,28 +142,23 @@ struct BreakControls: View {
     }
 
     private var holdToSkip: some View {
+        // One gesture drives both the ring and the action, so they cannot
+        // desync (the old LongPress+Drag pair let trackpad jitter cancel the
+        // press while the ring animated to 100% and nothing fired).
         Label("Hold to skip", systemImage: "forward.end")
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background {
                 Capsule()
-                    .trim(from: 0, to: holdProgress)
+                    .trim(from: 0, to: holding ? 1 : 0)
                     .stroke(.white.opacity(0.9), lineWidth: 2)
+                    .animation(holding ? .linear(duration: 2.0) : .easeOut(duration: 0.2),
+                               value: holding)
             }
             .glassEffect(.regular, in: .capsule)
-            .gesture(
-                LongPressGesture(minimumDuration: 2.0)
-                    .onEnded { _ in onSkip() }
-                    .simultaneously(with:
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { _ in
-                                if holdProgress == 0 {
-                                    withAnimation(.linear(duration: 2.0)) { holdProgress = 1 }
-                                }
-                            }
-                            .onEnded { _ in
-                                withAnimation(.easeOut(duration: 0.2)) { holdProgress = 0 }
-                            }
-                    )
-            )
+            .onLongPressGesture(minimumDuration: 2.0, maximumDistance: 60) {
+                onSkip()
+            } onPressingChanged: { pressing in
+                holding = pressing
+            }
     }
 }

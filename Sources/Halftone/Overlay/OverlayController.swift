@@ -43,19 +43,7 @@ final class OverlayController {
     func hide() {
         guard visible else { return }
         visible = false
-        let closing = panels
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.3
-            for panel in closing { panel.animator().alphaValue = 0 }
-        }, completionHandler: {
-            // MUST order out: an invisible window still eats clicks.
-            // Also destroy content — a live NSHostingView in an ordered-out
-            // window keeps TimelineView animations rendering (CPU leak).
-            for panel in closing {
-                panel.orderOut(nil)
-                panel.contentView = nil
-            }
-        })
+        OverlayPanel.dismiss(panels, duration: 0.3)
         panels = []
     }
 
@@ -73,7 +61,12 @@ final class OverlayController {
                     )
                 )
             )
-            panel.onEscape = { [weak self] in self?.engine?.skipBreak() }
+            panel.onEscape = { [weak self] in
+                // Escape is a skip entry point, so it obeys strictness the
+                // same as the buttons: instant only in gentle mode.
+                guard Preferences.shared.strictness == .easy else { return }
+                self?.engine?.skipBreak()
+            }
             return panel
         }
     }

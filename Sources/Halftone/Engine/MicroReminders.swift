@@ -13,53 +13,58 @@ final class MicroReminders {
     }
 
     private let prefs = Preferences.shared
-    private var blinkTimer: DispatchSourceTimer?
-    private var postureTimer: DispatchSourceTimer?
+    private let blink = RepeatingPoller()
+    private let posture = RepeatingPoller()
     private var flashPanel: OverlayPanel?
+    private var applied: (blink: Bool, blinkMin: Int, posture: Bool, postureMin: Int)?
 
     /// The engine gates when reminders may appear.
     var isSuppressed: (() -> Bool)?
+
+    /// The engine reports whether reminders should run at all (plain working
+    /// time). Timers stop entirely outside it: no overnight wakes in
+    /// offHours/idle, and no fires silently dropped by the suppression check.
+    private(set) var active = false
 
     init() {
         NotificationCenter.default.addObserver(
             forName: Preferences.changed, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyToggles() }
-        }
-        applyToggles()
-    }
-
-    private func applyToggles() {
-        blinkTimer = retime(blinkTimer, enabled: prefs.blinkEnabled,
-                            minutes: prefs.blinkIntervalMin) { [weak self] in
-            self?.fire(.blink)
-        }
-        postureTimer = retime(postureTimer, enabled: prefs.postureEnabled,
-                              minutes: prefs.postureIntervalMin) { [weak self] in
-            self?.fire(.posture)
+            MainActor.assumeIsolated { self?.applyToggles(force: false) }
         }
     }
 
-    private func retime(_ timer: DispatchSourceTimer?, enabled: Bool,
-                        minutes: Int, _ block: @escaping () -> Void) -> DispatchSourceTimer? {
-        timer?.cancel()
-        guard enabled else { return nil }
-        let interval = TimeInterval(max(1, minutes) * 60)
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(30))
-        t.setEventHandler(handler: block)
-        t.resume()
-        return t
+    /// Engine calls this on every state settle.
+    func setActive(_ nowActive: Bool) {
+        guard nowActive != active else { return }
+        active = nowActive
+        applyToggles(force: true)
+    }
+
+    private func applyToggles(force: Bool) {
+        // Every Preferences.changed post lands here; without the guard, an
+        // unrelated Settings tweak restarts both cadences from zero.
+        let now = (prefs.blinkEnabled, prefs.blinkIntervalMin,
+                   prefs.postureEnabled, prefs.postureIntervalMin)
+        guard force || applied == nil || applied! != now else { return }
+        applied = now
+        schedule(blink, enabled: active && now.0, minutes: now.1) { [weak self] in self?.fire(.blink) }
+        schedule(posture, enabled: active && now.2, minutes: now.3) { [weak self] in self?.fire(.posture) }
+    }
+
+    private func schedule(_ poller: RepeatingPoller, enabled: Bool, minutes: Int,
+                          _ block: @escaping () -> Void) {
+        poller.stop()
+        guard enabled else { return }
+        poller.start(interval: TimeInterval(max(1, minutes) * 60),
+                     leeway: .seconds(30), block)
     }
 
     func fire(_ kind: Kind) {
         guard !(isSuppressed?() ?? false), flashPanel == nil,
               let screen = NSScreen.main else { return }
         let panel = OverlayPanel(screen: screen, content: AnyView(MicroReminderView(kind: kind)))
-        panel.level = .statusBar
-        panel.ignoresMouseEvents = true
-        panel.refusesKey = true
-        panel.hasShadow = false
+        panel.makePassive(level: .statusBar)
         let size = NSSize(width: 200, height: 56)
         panel.setFrame(NSRect(x: screen.frame.midX - size.width / 2,
                               y: screen.frame.maxY - size.height - 44,
@@ -74,13 +79,7 @@ final class MicroReminders {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) { [weak self] in
             guard let self, let p = self.flashPanel else { return }
             self.flashPanel = nil
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.5
-                p.animator().alphaValue = 0
-            }, completionHandler: {
-                p.orderOut(nil)
-                p.contentView = nil
-            })
+            OverlayPanel.dismiss([p], duration: 0.5)
         }
     }
 }

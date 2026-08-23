@@ -42,13 +42,7 @@ final class WarningPillController {
     func hide() {
         guard let p = panel else { return }
         panel = nil
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.25
-            p.animator().alphaValue = 0
-        }, completionHandler: {
-            p.orderOut(nil)
-            p.contentView = nil
-        })
+        OverlayPanel.dismiss([p], duration: 0.25)
     }
 }
 

@@ -135,7 +135,7 @@ final class AutoWidthHostingView<V: View>: NSHostingView<V> {
         guard let window else { return }
         // A width measured while the status window was occluded (display
         // asleep, fullscreen app) can be stale; the change-guard would then
-        // pin the item at the wrong length until something forced layout —
+        // pin the item at the wrong length until something forced layout,
         // which is why clicking the icon "fixed" it. Re-measure on visible.
         occlusionObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification,
@@ -155,37 +155,58 @@ final class AutoWidthHostingView<V: View>: NSHostingView<V> {
 struct MenuBarLabel: View {
     let engine: BreakEngine
 
-    var body: some View {
-        // Everything, including the countdown range, re-derives each minute
-        // (and on every @Observable state change). A reading taken at a bad
-        // moment can therefore never stick.
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let display = MenuBarDisplay.compute(
-                state: engine.state,
-                shouldHold: engine.context.shouldHold,
-                holdReasons: engine.context.holdReasons,
-                showCountdown: Preferences.shared.showCountdownInMenuBar,
-                now: context.date)
-
-            HStack(spacing: 3) {
-                Image(systemName: display.symbol)
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.system(size: 13, weight: .medium))
-
-                switch display.countdown {
-                case .none:
-                    EmptyView()
-                case .minutes(let m):
-                    Text("\(m)m")
-                        .font(.system(size: 11.5, weight: .medium).monospacedDigit())
-                case .ticker(let end):
-                    Text(timerInterval: context.date...max(end, context.date),
-                         countsDown: true, showsHours: false)
-                        .font(.system(size: 11.5, weight: .medium).monospacedDigit())
-                }
-            }
-            .padding(.horizontal, 2)
-            .frame(maxHeight: .infinity)
+    /// States whose label can change with time (a countdown is showing).
+    private var needsClock: Bool {
+        guard Preferences.shared.showCountdownInMenuBar else { return false }
+        switch engine.state {
+        case .working, .warning, .inBreak: return true
+        default: return false
         }
+    }
+
+    var body: some View {
+        // A countdown label re-derives each minute (and on every @Observable
+        // change), so a reading taken at a bad moment can never stick. States
+        // with no countdown skip the timeline entirely: no scheduled wakeups
+        // overnight in offHours/idle or with the countdown pref off.
+        if needsClock {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                // context.date is the last tick, up to ~59s old on an
+                // @Observable-triggered re-render. Use the fresher of tick
+                // time and now so short warnings still get their ticker.
+                label(now: max(context.date, Date()))
+            }
+        } else {
+            label(now: Date())
+        }
+    }
+
+    private func label(now: Date) -> some View {
+        let display = MenuBarDisplay.compute(
+            state: engine.state,
+            shouldHold: engine.context.shouldHold,
+            holdReasons: engine.context.holdReasons,
+            showCountdown: Preferences.shared.showCountdownInMenuBar,
+            now: now)
+
+        return HStack(spacing: 3) {
+            Image(systemName: display.symbol)
+                .symbolRenderingMode(.hierarchical)
+                .font(.system(size: 13, weight: .medium))
+
+            switch display.countdown {
+            case .none:
+                EmptyView()
+            case .minutes(let m):
+                Text("\(m)m")
+                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+            case .ticker(let end):
+                Text(timerInterval: now...max(end, now),
+                     countsDown: true, showsHours: false)
+                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+            }
+        }
+        .padding(.horizontal, 2)
+        .frame(maxHeight: .infinity)
     }
 }

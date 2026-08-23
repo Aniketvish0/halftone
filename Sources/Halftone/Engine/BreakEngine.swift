@@ -60,6 +60,7 @@ final class BreakEngine {
     var overlayController: OverlayController?
     var warningPill: WarningPillController?
     var ambientGlow: AmbientGlowController?
+    var microReminders: MicroReminders?
     let context = ContextEngine()
     private let idleMonitor = IdleMonitor()
 
@@ -115,12 +116,12 @@ final class BreakEngine {
                 transition(.heldByContext(kind: kind, overdueSince: breakAt))
             }
         case .working(let due, let kind):
-            if context.shouldHold {
-                // Glow mustn't keep ramping toward a break that will be held.
-                ambientGlow?.hide()
-                if due.timeIntervalSinceNow < prefs.warnLead {
-                    transition(.heldByContext(kind: kind, overdueSince: due))
-                }
+            if context.shouldHold, due.timeIntervalSinceNow < prefs.warnLead {
+                transition(.heldByContext(kind: kind, overdueSince: due))
+            } else {
+                // Hold began or cleared mid-window without a transition:
+                // re-derive the glow either way.
+                syncGlow(due: due)
             }
         case .heldByContext(let kind, _):
             if !context.shouldHold {
@@ -367,6 +368,26 @@ final class BreakEngine {
         syncUI()
     }
 
+    /// Single owner of the glow: visible iff enabled, inside the window,
+    /// no hold. show() is idempotent per target, so calling this on every
+    /// settle is safe.
+    private func syncGlow(due: Date) {
+        let glowAt = due.addingTimeInterval(-TimeInterval(prefs.ambientGlowLeadSec))
+        if prefs.ambientGlowEnabled, Date() >= glowAt, !context.shouldHold {
+            ambientGlow?.show(breakAt: due)
+        } else {
+            ambientGlow?.hide()
+        }
+    }
+
+    /// Micro-reminders only interrupt plain working time, never over a
+    /// break, a warning, a hold, or an absence.
+    var allowsMicroReminders: Bool {
+        if context.shouldHold { return false }
+        if case .working = state { return true }
+        return false
+    }
+
     private func syncUI() {
         if case .warning(let breakAt, _) = state {
             warningPill?.show(breakAt: breakAt)
@@ -374,12 +395,12 @@ final class BreakEngine {
             warningPill?.hide()
         }
         switch state {
-        case .warning, .working:
-            break // glow lifecycle handled by evaluate()/glow window entry
+        case .working(let due, _), .warning(let due, _):
+            syncGlow(due: due)
         default:
             ambientGlow?.hide()
         }
-        if case .inBreak = state { ambientGlow?.hide() }
+        microReminders?.setActive(allowsMicroReminders)
         if case .inBreak(let kind, let endsAt) = state {
             overlayController?.show(kind: kind, endsAt: endsAt)
         } else {
@@ -451,7 +472,15 @@ final class BreakEngine {
                     // New interval is already exceeded: warn, then break.
                     warnSoon(kind: kind)
                 }
+            } else {
+                // Due unchanged, but glow enable/lead may have changed:
+                // re-derive the glow now and re-arm for any new milestone.
+                syncGlow(due: currentDue)
+                armTimer()
             }
+        case .warning(let breakAt, _):
+            syncGlow(due: breakAt)
+            armTimer()
         case .offHours:
             officeHoursChanged() // office hours may have been disabled/changed
         default:
@@ -468,10 +497,22 @@ final class BreakEngine {
         let (fireAt, leeway): (Date?, DispatchTimeInterval) = {
             switch state {
             case .working(let due, _):
-                let lead = max(prefs.warnLead, prefs.ambientGlowEnabled ? TimeInterval(prefs.ambientGlowLeadSec) : 0)
-                let warnAt = due.addingTimeInterval(-lead)
-                return (warnAt > Date() ? warnAt : due, .seconds(5))
+                // Earliest still-future milestone: glow start, then warning,
+                // then the break. Collapsing these into one wake (the old
+                // max(lead) form) skipped the warning pill whenever the glow
+                // lead exceeded the warn lead.
+                let now = Date()
+                let warnAt = due.addingTimeInterval(-prefs.warnLead)
+                let glowAt = prefs.ambientGlowEnabled
+                    ? due.addingTimeInterval(-TimeInterval(prefs.ambientGlowLeadSec)) : .distantPast
+                return ([glowAt, warnAt, due].filter { $0 > now }.min() ?? due, .seconds(5))
             case .warning(let breakAt, _):
+                // The glow moment can land inside .warning (glow lead shorter
+                // than warn lead): wake for it, not only for the break.
+                let now = Date()
+                let glowAt = prefs.ambientGlowEnabled
+                    ? breakAt.addingTimeInterval(-TimeInterval(prefs.ambientGlowLeadSec)) : .distantPast
+                if glowAt > now { return (glowAt, .seconds(2)) }
                 return (breakAt, .milliseconds(500))
             case .inBreak(_, let endsAt):
                 return (endsAt, .milliseconds(500))
@@ -503,19 +544,21 @@ final class BreakEngine {
         switch state {
         case .working(let due, let kind):
             let warnAt = due.addingTimeInterval(-prefs.warnLead)
-            let glowAt = due.addingTimeInterval(-TimeInterval(prefs.ambientGlowLeadSec))
             if now >= due {
                 beginBreak(kind: kind)
             } else if now >= warnAt {
                 enterWarning(breakAt: due, kind: kind)
             } else {
-                if prefs.ambientGlowEnabled, now >= glowAt, !context.shouldHold {
-                    ambientGlow?.show(breakAt: due)
-                }
+                syncGlow(due: due)
                 armTimer()
             }
         case .warning(let breakAt, let kind):
-            if now >= breakAt { beginBreak(kind: kind) } else { armTimer() }
+            if now >= breakAt {
+                beginBreak(kind: kind)
+            } else {
+                syncGlow(due: breakAt)
+                armTimer()
+            }
         case .inBreak(_, let endsAt):
             if now >= endsAt { endBreak(completed: true) } else { armTimer() }
         case .pausedByUser(let until):

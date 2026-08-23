@@ -12,21 +12,48 @@ import SwiftUI
 final class AmbientGlowController {
     private var panels: [OverlayPanel] = []
     private var visible = false
+    private var currentTarget: Date?
+    private let rebuildDebounce = Debouncer(delay: 0.5)
 
-    /// Shows the glow ramping from now until `breakAt`.
+    init() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.rebuildDebounce.schedule { [weak self] in
+                    MainActor.assumeIsolated {
+                        // Rebuild for the same target: displays changed, so
+                        // bypass the idempotence guard via hide-then-show.
+                        guard let self, self.visible, let target = self.currentTarget else { return }
+                        self.hide()
+                        self.show(breakAt: target)
+                    }
+                }
+            }
+        }
+    }
+
+#if DEBUG
+    /// Test seam: identity of the live panels, to assert rebuild vs reuse.
+    var _testPanelIDs: [ObjectIdentifier] { panels.map(ObjectIdentifier.init) }
+#endif
+
+    /// Shows the glow ramping from now until `breakAt`. Idempotent per
+    /// target: evaluate() can run several times inside the glow window
+    /// (wake, hold release, pref change) and must not restart the ramp.
     func show(breakAt: Date) {
+        if visible, let t = currentTarget, abs(t.timeIntervalSince(breakAt)) < 1 { return }
         hide()
+        currentTarget = breakAt
         let duration = max(1, breakAt.timeIntervalSinceNow)
         panels = NSScreen.screens.map { screen in
             let panel = OverlayPanel(
                 screen: screen,
                 content: AnyView(AmbientGlowView(rampDuration: duration))
             )
-            panel.level = .statusBar - 1     // under the pill, over normal windows
-            panel.ignoresMouseEvents = true  // never intercepts the user
-            panel.refusesKey = true          // no focus ring on the hosting view
-            panel.hasShadow = false          // shadow traces the strip edges otherwise
-            panel.setFrame(screen.frame, display: true)
+            panel.makePassive(level: .statusBar - 1) // under the pill, over normal windows
             return panel
         }
         visible = true
@@ -37,19 +64,11 @@ final class AmbientGlowController {
     }
 
     func hide() {
+        currentTarget = nil
         guard visible else { return }
         visible = false
-        let closing = panels
+        OverlayPanel.dismiss(panels, duration: 0.5)
         panels = []
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.5
-            for panel in closing { panel.animator().alphaValue = 0 }
-        }, completionHandler: {
-            for panel in closing {
-                panel.orderOut(nil)
-                panel.contentView = nil
-            }
-        })
     }
 }
 
@@ -87,7 +106,6 @@ struct AmbientGlowView: View {
             .animation(.easeIn(duration: rampDuration), value: ramped)
         }
         .allowsHitTesting(false)
-        .ignoresSafeArea()
         .onAppear { ramped = true }
     }
 }

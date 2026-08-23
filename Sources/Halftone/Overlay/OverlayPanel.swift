@@ -40,3 +40,27 @@ final class OverlayPanel: NSPanel {
         onEscape?()
     }
 }
+
+
+extension OverlayPanel {
+    /// Fades out and tears down. Both halves are load-bearing: an ordered-in
+    /// but invisible window still eats clicks, and a live NSHostingView keeps
+    /// rendering its animations even when ordered out (CPU leak).
+    static func dismiss(_ panels: [OverlayPanel], duration: TimeInterval) {
+        guard !panels.isEmpty else { return }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = duration
+            for p in panels { p.animator().alphaValue = 0 }
+        }, completionHandler: {
+            for p in panels { p.orderOut(nil); p.contentView = nil }
+        })
+    }
+
+    /// Shared setup for passive (non-interactive) panels: glow, reminders.
+    func makePassive(level: NSWindow.Level) {
+        self.level = level
+        ignoresMouseEvents = true
+        refusesKey = true
+        hasShadow = false
+    }
+}

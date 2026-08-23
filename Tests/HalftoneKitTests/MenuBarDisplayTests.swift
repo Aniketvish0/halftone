@@ -44,8 +44,8 @@ struct MenuBarDisplayTests {
     }
 
     /// THE FIELD BUG: a due date in the past must yield icon-only, never a
-    /// crash or a stuck stale number — and (covered by the TimelineView) it
-    /// re-evaluates within a minute.
+    /// crash or a stuck stale number. The TimelineView re-evaluates it
+    /// within a minute.
     @Test func pastDueShowsIconOnly() {
         let d = compute(.working(nextBreakAt: at(-5), kind: .short))
         #expect(d.countdown == .none)
@@ -148,7 +148,7 @@ struct MenuBarDisplayTests {
         }
     }
 
-    // MARK: Clock robustness
+    // MARK: Clock edge cases
 
     @Test func absurdFutureDateStillComputes() {
         let d = compute(.working(nextBreakAt: at(86_400 * 365), kind: .short))
