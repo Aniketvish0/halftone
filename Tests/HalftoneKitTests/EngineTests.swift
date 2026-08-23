@@ -291,9 +291,6 @@ extension EngineTests {
         print("MEASURED toggle-off release latency: \(Int(latency * 1000))ms")
         #expect(!engine.context.shouldHold, "toggle off must release the hold")
         #expect(latency < 0.5, "release took \(Int(latency * 1000))ms; budget is 500ms")
-
-        prefs.pauseOnMedia = true
-        await drainMainQueue()
     }
 
     /// Toggle ON while the activity is already happening must hold promptly.
@@ -311,16 +308,11 @@ extension EngineTests {
         prefs.pauseOnMedia = true
         while !engine.context.shouldHold, Date().timeIntervalSince(flipAt) < 1.0 {
             await drainMainQueue()
-            fake.simulate(detected: true) // detector re-reports once started
         }
         let latency = Date().timeIntervalSince(flipAt)
         print("MEASURED toggle-on hold latency: \(Int(latency * 1000))ms")
         #expect(engine.context.shouldHold, "toggle on during activity must hold")
         #expect(latency < 0.5, "hold took \(Int(latency * 1000))ms; budget is 500ms")
-
-        fake.simulate(detected: false)
-        prefs.pauseOnMedia = true
-        await drainMainQueue()
     }
 
     /// Activity ending NATURALLY must keep holding through the linger window
@@ -344,9 +336,6 @@ extension EngineTests {
         prefs.pauseOnMic = false
         await drainMainQueue()
         #expect(!engine.context.shouldHold, "toggle off mid-linger must release now")
-
-        prefs.pauseOnMic = true
-        await drainMainQueue()
     }
 }
 
@@ -363,20 +352,18 @@ extension EngineTests {
         prefs.idleEnabled = true
         await drainMainQueue()
         let engine = makeEngine()
+        let fake = engine.context._testInstallDetector(
+            flag: .mediaPlaying, enabled: \.pauseOnMedia)
 
-        #expect(engine.context._testMediaDetector.isRunning,
-                "media detector must run for idle suppression when idle is on")
+        #expect(fake.running,
+                "media-flag detector must run for idle suppression when idle is on")
 
-        engine.context._testMediaDetector._testSetDetected(true)
+        fake.simulate(detected: true)
         #expect(engine.context.isMediaPlaying,
                 "raw detection must surface with the hold toggle off")
         #expect(!engine.context.activeFlags.contains(.mediaPlaying),
                 "but it must NOT hold breaks (toggle is off)")
         #expect(!engine.context.shouldHold)
-
-        engine.context._testMediaDetector._testSetDetected(false)
-        prefs.idleEnabled = false
-        await drainMainQueue()
     }
 
     /// Both consumers off: the detector must actually stop.
@@ -385,7 +372,9 @@ extension EngineTests {
         prefs.idleEnabled = false
         await drainMainQueue()
         let engine = makeEngine()
-        #expect(!engine.context._testMediaDetector.isRunning,
+        let fake = engine.context._testInstallDetector(
+            flag: .mediaPlaying, enabled: \.pauseOnMedia)
+        #expect(!fake.running,
                 "no hold toggle, no idle: detector must not run")
         #expect(!engine.context.isMediaPlaying)
     }

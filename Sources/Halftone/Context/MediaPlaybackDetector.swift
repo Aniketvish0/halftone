@@ -16,15 +16,6 @@ final class MediaPlaybackDetector: ContextDetector {
     private let assertionPoller = RepeatingPoller()
     private var displaySleepPIDs: Set<pid_t> = []
 
-    var isRunning: Bool { observerID != nil }
-
-#if DEBUG
-    /// Test seam: force the detection state through onChange.
-    func _testSetDetected(_ detected: Bool) {
-        isDetected = detected
-        onChange?()
-    }
-#endif
 
     func start() {
         guard observerID == nil else { return }

@@ -165,7 +165,7 @@ struct MenuBarLabel: View {
     /// wrongly claiming a call.
     private var holdSymbol: String {
         engine.context.holdReasons.min(by: { $0.priority < $1.priority })?.symbolName
-            ?? "person.wave.2"
+            ?? "circle.lefthalf.filled" // unreachable; fail neutral, not as a phantom call
     }
 
     private var symbolName: String {

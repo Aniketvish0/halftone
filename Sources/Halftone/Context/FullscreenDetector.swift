@@ -55,11 +55,9 @@ final class FullscreenDetector: ContextDetector {
     private func recheck() {
         guard !tokens.isEmpty else { return }
         let now = Self.frontmostIsFullscreen()
-        if now != isDetected {
-            isDetected = now
-            onChange?()
-        }
-        if isDetected {
+        guard now != isDetected else { return }
+        isDetected = now
+        if now {
             // 30s: a stale-true costs at most a slightly-later break, so slow
             // verification is fine, and a 2h fullscreen movie stays cheap.
             verify.start(interval: 30, leeway: .seconds(5)) { [weak self] in
@@ -68,6 +66,7 @@ final class FullscreenDetector: ContextDetector {
         } else {
             verify.stop()
         }
+        onChange?()
     }
 
     static func frontmostIsFullscreen() -> Bool {

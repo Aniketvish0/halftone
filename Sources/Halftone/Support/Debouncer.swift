@@ -60,6 +60,4 @@ final class RepeatingPoller {
         timer?.cancel()
         timer = nil
     }
-
-    var isRunning: Bool { timer != nil }
 }

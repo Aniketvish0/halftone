@@ -52,7 +52,6 @@ final class BreakEngine {
     /// where they stopped instead of restarting the full interval.
     private var pausedRemaining: (kind: BreakKind, remaining: TimeInterval)?
 
-    private var awaySince: Date?
     private let wakeRecovery = RepeatingPoller()
 
     private let prefs = Preferences.shared
@@ -173,28 +172,19 @@ final class BreakEngine {
     }
 
     private func systemWentAway() {
-        let since = awaySince ?? Date()
-        awaySince = since
         switch state {
-        case .inBreak, .pausedByUser:
-            break
+        case .inBreak, .pausedByUser, .idle:
+            break // .idle keeps its original since (enterIdle would no-op anyway)
         default:
-            enterIdle(since: since)
+            enterIdle(since: Date())
         }
     }
 
     private func systemCameBack() {
         wakeRecovery.stop()
-        // Fall back to the idle state's own timestamp: the unlock notification
-        // can arrive when awaySince was never set (idle entered via the
-        // IdleMonitor, then locked) or already consumed.
-        var idleSince: Date?
-        if case .idle(let since, _) = state { idleSince = since }
-        guard let since = awaySince ?? idleSince else { return }
-        awaySince = nil
-        if case .idle = state {
-            returnedFromIdle(after: Date().timeIntervalSince(since))
-        }
+        // The idle state carries its own timestamp; no separate bookkeeping.
+        guard case .idle(let since, _) = state else { return }
+        returnedFromIdle(after: Date().timeIntervalSince(since))
     }
 
     /// Wake without a lock (no password after sleep, auto-login) never posts
@@ -204,7 +194,7 @@ final class BreakEngine {
     /// moon icon for minutes after a next-day wake), so a cheap poll backstops
     /// it: unlocked + fresh input = the user is back, notification or not.
     private func systemWoke() {
-        if awaySince != nil, !CGSession.flag("CGSSessionScreenIsLocked") {
+        if case .idle = state, !CGSession.flag("CGSSessionScreenIsLocked") {
             systemCameBack()
         } else {
             evaluate()

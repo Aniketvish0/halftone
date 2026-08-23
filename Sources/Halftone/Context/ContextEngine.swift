@@ -59,8 +59,11 @@ final class ContextEngine {
     /// True while media is detected playing, INDEPENDENT of whether the
     /// user wants video to hold breaks. Feeds idle suppression: "watching a
     /// video with hands off the keyboard is not away" must hold even when
-    /// the Video playing hold-toggle is off.
-    var isMediaPlaying: Bool { media.isDetected }
+    /// the Video playing hold-toggle is off. Reads through the detector
+    /// table so test-installed detectors participate too.
+    var isMediaPlaying: Bool {
+        all.contains { $0.detector.flag == .mediaPlaying && $0.detector.isDetected }
+    }
 
     /// Start/stop each detector to match its toggle. Idempotent; called on
     /// every preference change so toggles take effect immediately.
@@ -84,29 +87,22 @@ final class ContextEngine {
         for (detector, enabled) in all where prefs[keyPath: enabled] && detector.isDetected {
             flags.insert(detector.flag)
         }
-        // Mid-linger, activeFlags is already empty, so a toggle flip is
-        // invisible to the flags diff. The instruction to clear must still
-        // cancel the linger.
-        if clearImmediately, flags.isEmpty, shouldHold {
-            lingerTimer?.cancel(); lingerTimer = nil
-            activeFlags = []
-            holdReasons = []
-            setHold(false)
-            return
-        }
-        guard flags != activeFlags else { return }
+        let changed = flags != activeFlags
         activeFlags = flags
 
         if !flags.isEmpty {
-            // Condition active: hold, cancel any linger countdown.
+            guard changed else { return }
             lingerTimer?.cancel(); lingerTimer = nil
             holdReasons = flags
             setHold(true)
         } else if clearImmediately {
+            // A toggle flip is an instruction, not an activity ending:
+            // release now, even mid-linger (when the flags diff is empty).
+            guard shouldHold else { return }
             lingerTimer?.cancel(); lingerTimer = nil
             holdReasons = []
             setHold(false)
-        } else {
+        } else if changed {
             // Activity ended on its own: keep holding through the linger
             // (calls have silences, videos have chapter gaps).
             startLinger()
@@ -155,17 +151,21 @@ final class ContextEngine {
         var onChange: (() -> Void)?
         private(set) var isDetected = false
         private(set) var running = false
+        private var wanted = false
         init(flag: ContextFlag) { self.flag = flag }
-        func start() { running = true }
+        // Like real detectors, start() re-reads current truth (the latched
+        // `wanted`), so a simulate before start isn't silently dropped.
+        func start() {
+            running = true
+            if wanted != isDetected { isDetected = wanted; onChange?() }
+        }
         func stop() { running = false; isDetected = false }
         func simulate(detected: Bool) {
+            wanted = detected
             isDetected = detected && running
             onChange?()
         }
     }
-
-    /// Test seam: the real media detector, for driving raw detection.
-    var _testMediaDetector: MediaPlaybackDetector { media }
 
     /// Registers a fake detector bound to a preference key path. Test-only.
     @discardableResult
