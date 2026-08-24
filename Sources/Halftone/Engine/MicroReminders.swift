@@ -62,25 +62,46 @@ final class MicroReminders {
 
     private func applyToggles() {
         // Every Preferences.changed post lands here; without the guard, an
-        // unrelated Settings tweak restarts both cadences from zero. Timers
-        // run 24/7 while their feature is on: a 10-minute cadence with 30s
-        // leeway is noise next to the always-on 2s screen-capture poll, and
-        // stop/start tied to activation kept resetting the phase to zero so
-        // an interval never completed during busy days.
+        // unrelated Settings tweak restarts both cadences from zero.
         let now = (prefs.blinkEnabled, prefs.blinkIntervalMin,
                    prefs.postureEnabled, prefs.postureIntervalMin)
         guard applied == nil || applied! != now else { return }
         applied = now
-        schedule(blink, enabled: now.0, minutes: now.1) { [weak self] in self?.fire(.blink) }
-        schedule(posture, enabled: now.2, minutes: now.3) { [weak self] in self?.fire(.posture) }
+        schedule(blink, kind: .blink, enabled: now.0, minutes: now.1)
+        schedule(posture, kind: .posture, enabled: now.2, minutes: now.3)
     }
 
-    private func schedule(_ poller: RepeatingPoller, enabled: Bool, minutes: Int,
-                          _ block: @escaping () -> Void) {
+    /// Date-anchored, like the break engine: the next fire time persists
+    /// across relaunches and sleeps. Field bug: in-memory repeating timers
+    /// reset their phase on every relaunch, and a 45-minute posture interval
+    /// on a machine that relaunches or sleeps more often than that NEVER
+    /// completed - the user saw zero posture reminders, ever.
+    private func schedule(_ poller: RepeatingPoller, kind: Kind, enabled: Bool, minutes: Int) {
         poller.stop()
-        guard enabled else { return }
-        poller.start(interval: TimeInterval(max(1, minutes) * 60),
-                     leeway: .seconds(30), block)
+        let key = anchorKey(kind)
+        guard enabled else {
+            Defaults.store.removeObject(forKey: key)
+            return
+        }
+        let interval = TimeInterval(max(1, minutes) * 60)
+        // Honor a persisted anchor; a past-due anchor fires shortly after
+        // launch instead of restarting the whole interval.
+        let stored = Defaults.store.object(forKey: key) as? Date
+        var nextAt = stored ?? Date().addingTimeInterval(interval)
+        if let stored, abs(stored.timeIntervalSinceNow) > interval * 2 {
+            nextAt = Date().addingTimeInterval(interval) // stale (interval changed / clock jump)
+        }
+        Defaults.store.set(nextAt, forKey: key)
+        let firstDelay = max(5, nextAt.timeIntervalSinceNow)
+        poller.start(interval: interval, leeway: .seconds(30), firstDelay: firstDelay) { [weak self] in
+            guard let self else { return }
+            Defaults.store.set(Date().addingTimeInterval(interval), forKey: key)
+            self.fire(kind)
+        }
+    }
+
+    private func anchorKey(_ kind: Kind) -> String {
+        kind == .blink ? "nextBlinkAt" : "nextPostureAt"
     }
 
     func fire(_ kind: Kind) {

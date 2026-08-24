@@ -624,3 +624,42 @@ extension EngineTests {
         await drainMainQueue()
     }
 }
+
+// MARK: - Reminder cadence survives relaunch
+
+@MainActor
+extension EngineTests {
+
+    /// THE FIELD BUG: posture at 45 min never fired because the in-memory
+    /// timer phase reset on every app relaunch (deploys, sleeps). The next
+    /// fire time must persist: a new MicroReminders instance must honor the
+    /// stored anchor instead of restarting the interval.
+    @Test func reminderAnchorSurvivesRelaunch() async {
+        prefs.postureEnabled = true
+        prefs.postureIntervalMin = 45
+        await drainMainQueue()
+
+        let first = MicroReminders()
+        _ = first // schedules and persists nextPostureAt
+        let anchor1 = Defaults.store.object(forKey: "nextPostureAt") as? Date
+        #expect(anchor1 != nil, "scheduling must persist the next fire time")
+
+        // "Relaunch": a fresh instance must adopt the same anchor.
+        let second = MicroReminders()
+        _ = second
+        let anchor2 = Defaults.store.object(forKey: "nextPostureAt") as? Date
+        #expect(anchor2 != nil)
+        if let anchor1, let anchor2 {
+            #expect(abs(anchor2.timeIntervalSince(anchor1)) < 2,
+                    "relaunch must NOT restart the interval (anchor moved \(anchor2.timeIntervalSince(anchor1))s)")
+        }
+
+        // Disabling clears the anchor.
+        prefs.postureEnabled = false
+        await drainMainQueue()
+        let third = MicroReminders()
+        _ = third
+        #expect(Defaults.store.object(forKey: "nextPostureAt") == nil,
+                "disabled reminder must not keep a stale anchor")
+    }
+}
