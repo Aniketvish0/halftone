@@ -30,6 +30,19 @@ final class AudioProcessMonitor {
 
     private func notify() { for block in observers.values { block() } }
 
+#if DEBUG
+    /// Test seams: inject monitor state without CoreAudio.
+    func _testSetState(micPIDs: Set<pid_t>, outputPIDs: Set<pid_t>) {
+        self.micPIDs = micPIDs
+        self.outputPIDs = outputPIDs
+        notify()
+    }
+    func _testClearState() {
+        micPIDs = []; outputPIDs = []; bundleIDs = [:]
+        notify()
+    }
+#endif
+
     /// Bundle-ID prefixes whose "input running" is meaningless chatter:
     /// virtual audio drivers pin input open forever, and always-listening
     /// dictation daemons (Wispr Flow) grab the mic without being a call.
@@ -214,11 +227,29 @@ final class MicDetector: ContextDetector {
         AudioProcessMonitor.shared.removeObserver(id)
         AudioProcessMonitor.shared.releaseMonitor()
         observerID = nil
+        callPIDs = []
         isDetected = false
     }
 
+    /// PIDs that held the mic during this call session. A mute releases the
+    /// mic while the app keeps producing output (you still hear the call);
+    /// the call is over only when the app's whole audio session ends. Field
+    /// bug: a 10s linger after mute fired a long break MID-CALL.
+    private var callPIDs: Set<pid_t> = []
+
+#if DEBUG
+    func _testRecheck() { recheck() }
+#endif
+
     private func recheck() {
-        let now = !AudioProcessMonitor.shared.micPIDs.isEmpty
+        let monitor = AudioProcessMonitor.shared
+        if !monitor.micPIDs.isEmpty {
+            callPIDs = monitor.micPIDs
+        } else {
+            // Mic gone: the call survives while any call app still outputs.
+            callPIDs = callPIDs.intersection(monitor.outputPIDs)
+        }
+        let now = !monitor.micPIDs.isEmpty || !callPIDs.isEmpty
         if now != isDetected {
             isDetected = now
             onChange?()

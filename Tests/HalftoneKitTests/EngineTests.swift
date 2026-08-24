@@ -803,3 +803,48 @@ extension EngineTests {
         #expect(workingDue(engine) != nil, "ResumeBreaksIntent must resume")
     }
 }
+
+// MARK: - Muted call survivorship
+
+@MainActor
+extension EngineTests {
+
+    /// THE FIELD BUG: muting a call releases the mic while the app keeps
+    /// producing output. The 10s stable linger then dropped the hold and a
+    /// LONG BREAK FIRED MID-CALL. The mic hold must survive a mute for as
+    /// long as the same app keeps outputting.
+    @Test func micHoldSurvivesMute() {
+        let mic = MicDetector()
+        // Drive the detector's own logic via the monitor seam.
+        AudioProcessMonitor.shared._testSetState(micPIDs: [111], outputPIDs: [111])
+        mic._testRecheck()
+        #expect(mic.isDetected, "call: mic+output detected")
+
+        // MUTE: mic released, same PID still outputs (you hear the call).
+        AudioProcessMonitor.shared._testSetState(micPIDs: [], outputPIDs: [111])
+        mic._testRecheck()
+        #expect(mic.isDetected, "muted call: hold must survive (output continues)")
+
+        // Call actually ends: output gone too.
+        AudioProcessMonitor.shared._testSetState(micPIDs: [], outputPIDs: [])
+        mic._testRecheck()
+        #expect(!mic.isDetected, "session over: mic and output both gone")
+
+        AudioProcessMonitor.shared._testClearState()
+    }
+
+    /// Unrelated audio (music app) must not extend a call hold after hangup.
+    @Test func unrelatedOutputDoesNotExtendCallHold() {
+        let mic = MicDetector()
+        AudioProcessMonitor.shared._testSetState(micPIDs: [111], outputPIDs: [111, 222])
+        mic._testRecheck()
+        #expect(mic.isDetected)
+
+        // Hangup: call app (111) fully gone; music (222) keeps playing.
+        AudioProcessMonitor.shared._testSetState(micPIDs: [], outputPIDs: [222])
+        mic._testRecheck()
+        #expect(!mic.isDetected, "music alone must not look like a call")
+
+        AudioProcessMonitor.shared._testClearState()
+    }
+}
