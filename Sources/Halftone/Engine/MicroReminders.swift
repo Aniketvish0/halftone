@@ -113,6 +113,7 @@ final class MicroReminders {
 #if DEBUG
         if let seam = _testPresent { seam(kind); return }
 #endif
+        EventHooks.shared.fire(kind == .blink ? "reminder-blink" : "reminder-posture")
         guard flashPanel == nil, let screen = NSScreen.main else { return }
         let panel = OverlayPanel(screen: screen, content: AnyView(MicroReminderView(kind: kind)))
         panel.makePassive(level: .statusBar)

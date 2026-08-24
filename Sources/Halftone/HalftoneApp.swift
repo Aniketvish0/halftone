@@ -26,10 +26,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         engine.microReminders = reminders
         menuBar = MenuBarController(engine: engine)
+        IntentBridge.engine = engine
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleURL(_:with:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL))
         engine.start()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+
+    /// halftone://break | skip | pause[?minutes=N] | resume
+    @objc private func handleURL(_ event: NSAppleEventDescriptor, with reply: NSAppleEventDescriptor) {
+        guard let raw = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: raw), url.scheme == "halftone" else { return }
+        switch url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
+        case "break": engine.startBreakNow()
+        case "skip": engine.skipBreak()
+        case "pause":
+            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let mins = comps?.queryItems?.first(where: { $0.name == "minutes" })?.value.flatMap(Int.init) ?? 0
+            engine.pause(for: mins > 0 ? TimeInterval(mins * 60) : nil)
+        case "resume": engine.resume()
+        default: break
+        }
+    }
 }
 
 @MainActor

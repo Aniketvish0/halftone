@@ -373,9 +373,24 @@ final class BreakEngine {
         transition(.warning(breakAt: breakAt, kind: kind))
     }
 
+    /// Mid-keystroke or mid-drag deferral window. Checked only at the fire
+    /// moment (no event monitoring, no permissions): if the last keydown or
+    /// drag is fresher than this, wait briefly and re-check.
+    private static let typingHoldWindow: TimeInterval = 3
+
     private func beginBreak(kind: BreakKind, force: Bool = false) {
         if context.shouldHold, !force {
             transition(.heldByContext(kind: kind, overdueSince: Date()))
+            return
+        }
+        if !force, Self.userIsMidInput() {
+            // Don't yank the screen away mid-sentence: retry shortly. The
+            // warning state stays as-is; evaluate() re-lands here.
+            let t = DispatchSource.makeTimerSource(queue: .main)
+            t.schedule(deadline: .now() + 5, leeway: .seconds(1))
+            t.setEventHandler { [weak self] in self?.evaluate() }
+            t.resume()
+            timer = t
             return
         }
         let duration = kind == .long ? prefs.longDuration : prefs.shortDuration
@@ -395,10 +410,51 @@ final class BreakEngine {
     /// and reconcile the two imperative UI surfaces with the new state. The
     /// menu bar needs nothing — it derives from `state` via @Observable.
     private func transition(_ new: State) {
+        let old = state
         state = new
         persistSnapshot()
         armTimer()
         syncUI()
+        fireHooks(from: old, to: new)
+    }
+
+    /// Shell hooks on the transitions users script against. Deliberately
+    /// edge-triggered (state class changes, not re-arms within a state).
+    private func fireHooks(from old: State, to new: State) {
+        func cls(_ s: State) -> String {
+            switch s {
+            case .working: "working"
+            case .warning: "warning"
+            case .inBreak: "inBreak"
+            case .pausedByUser: "paused"
+            case .heldByContext: "held"
+            case .idle: "idle"
+            case .offHours: "offHours"
+            }
+        }
+        let (o, n) = (cls(old), cls(new))
+        guard o != n else { return }
+        switch n {
+        case "warning": EventHooks.shared.fire("break-warning")
+        case "inBreak":
+            if case .inBreak(let kind, _) = new {
+                EventHooks.shared.fire("break-start", context: ["kind": kind.rawValue])
+            }
+        case "held":
+            EventHooks.shared.fire("hold-start",
+                                   context: ["reasons": context.holdReasonsSummary])
+        case "idle": EventHooks.shared.fire("idle-start")
+        default: break
+        }
+        switch o {
+        case "inBreak":
+            // Distinguish completed vs skipped via where we land: a skip goes
+            // straight to working with a fresh full cycle; both fire break-end.
+            EventHooks.shared.fire("break-end")
+        case "held": EventHooks.shared.fire("hold-end")
+        case "idle": EventHooks.shared.fire("idle-end")
+        default: break
+        }
     }
 
     /// Single owner of the glow: visible iff enabled, inside the window,
@@ -411,6 +467,14 @@ final class BreakEngine {
         } else {
             ambientGlow?.hide()
         }
+    }
+
+    /// True while the user is actively typing or dragging (checked on
+    /// demand; CGEventSource reads need no permissions).
+    static func userIsMidInput() -> Bool {
+        let keys = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyDown)
+        let drag = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .leftMouseDragged)
+        return min(keys, drag) < typingHoldWindow
     }
 
     /// Micro-reminders only interrupt plain working time, never over a

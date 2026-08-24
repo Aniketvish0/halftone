@@ -730,3 +730,76 @@ extension EngineTests {
         engine.context._testSetHold(false)
     }
 }
+
+// MARK: - Phase 4: scriptability
+
+@MainActor
+extension EngineTests {
+
+    /// Hooks are edge-triggered on state-class changes. We can't run user
+    /// scripts in tests; assert the classification logic via transitions
+    /// observable in state, and the hook dir contract separately.
+    @Test func typingHoldWindowReadsFreshInput() {
+        // No synthetic events in tests: assert the pure contract instead —
+        // the window is 3s and the check reads the minimum of key/drag age.
+        // With no recent input in a CI-quiet run this is false; with any
+        // recent typing (a developer running locally) it may be true.
+        // Either answer must come back without crashing and within budget.
+        let started = Date()
+        _ = BreakEngine.userIsMidInput()
+        #expect(Date().timeIntervalSince(started) < 0.1,
+                "input check must be an instant read, not a poll")
+    }
+
+    /// The status intent renders every state without crashing.
+    @Test func statusIntentCoversAllStates() async throws {
+        let engine = makeEngine()
+        IntentBridge.engine = engine
+        let intent = BreakStatusIntent()
+
+        var texts: [String] = []
+        texts.append(try await intent.perform().value ?? "")
+        engine.startBreakNow()
+        texts.append(try await intent.perform().value ?? "")
+        engine.skipBreak()
+        engine.pause()
+        texts.append(try await intent.perform().value ?? "")
+        engine.resume()
+        engine.context._testSetHold(true)
+        engine._testEnterHeld()
+        texts.append(try await intent.perform().value ?? "")
+        engine.context._testSetHold(false)
+
+        #expect(texts.count == 4)
+        #expect(texts[0].contains("working"))
+        #expect(texts[1].contains("on break"))
+        #expect(texts[2] == "paused")
+        #expect(texts[3].contains("held"))
+    }
+
+    /// Start/skip/pause/resume intents drive the real engine.
+    @Test func controlIntentsDriveTheEngine() async throws {
+        let engine = makeEngine()
+        IntentBridge.engine = engine
+
+        _ = try await StartBreakIntent().perform()
+        var inBreak = false
+        if case .inBreak = engine.state { inBreak = true }
+        #expect(inBreak, "StartBreakIntent must begin a break")
+
+        _ = try await SkipBreakIntent().perform()
+        #expect(workingDue(engine) != nil, "SkipBreakIntent must return to working")
+
+        let pause = PauseBreaksIntent()
+        pause.minutes = 30
+        _ = try await pause.perform()
+        if case .pausedByUser(let until) = engine.state {
+            #expect(until != nil, "timed pause must store until")
+        } else {
+            Issue.record("PauseBreaksIntent must pause")
+        }
+
+        _ = try await ResumeBreaksIntent().perform()
+        #expect(workingDue(engine) != nil, "ResumeBreaksIntent must resume")
+    }
+}

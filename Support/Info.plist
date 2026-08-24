@@ -12,5 +12,12 @@
     <key>LSMinimumSystemVersion</key>    <string>26.0</string>
     <key>LSUIElement</key>               <true/>
     <key>NSHumanReadableCopyright</key>  <string>Personal build</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>    <string>me.aniket.halftone</string>
+            <key>CFBundleURLSchemes</key> <array><string>halftone</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>
