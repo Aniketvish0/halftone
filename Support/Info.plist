@@ -5,8 +5,8 @@
     <key>CFBundleName</key>              <string>Halftone</string>
     <key>CFBundleDisplayName</key>       <string>Halftone</string>
     <key>CFBundleIdentifier</key>        <string>me.aniket.halftone</string>
-    <key>CFBundleVersion</key>           <string>5</string>
-    <key>CFBundleShortVersionString</key><string>0.0.5</string>
+    <key>CFBundleVersion</key>           <string>6</string>
+    <key>CFBundleShortVersionString</key><string>0.0.6</string>
     <key>CFBundleExecutable</key>        <string>Halftone</string>
     <key>CFBundlePackageType</key>       <string>APPL</string>
     <key>LSMinimumSystemVersion</key>    <string>26.0</string>
