@@ -663,3 +663,70 @@ extension EngineTests {
                 "disabled reminder must not keep a stale anchor")
     }
 }
+
+// MARK: - Per-signal linger
+
+@MainActor
+extension EngineTests {
+
+    /// THE FIELD BUG: a WhatsApp hangup took 60+s of linger on top of the
+    /// OS's own late mic release. Mic is a stable signal (open through the
+    /// whole call, silences included), so its clearing means the call is
+    /// truly over: linger must be short (10s), not the configurable 60s.
+    @Test func micClearingUsesShortLinger() async {
+        prefs.pauseOnMic = true
+        prefs.contextLingerSec = 60
+        await drainMainQueue()
+        let engine = makeEngine()
+        let mic = engine.context._testInstallDetector(flag: .micInUse, enabled: \.pauseOnMic)
+
+        mic.simulate(detected: true)
+        #expect(engine.context.shouldHold)
+        mic.simulate(detected: false)
+        #expect(engine.context.shouldHold, "linger holds immediately after clear")
+
+        // Short linger: released well before the 60s configured value.
+        try? await Task.sleep(for: .seconds(11))
+        await drainMainQueue()
+        #expect(!engine.context.shouldHold,
+                "mic linger must be ~10s, not the 60s media linger")
+    }
+
+    /// Media keeps the long linger: 11s after clearing it must STILL hold
+    /// (chapter gaps and ad breaks are longer than 10s).
+    @Test func mediaClearingKeepsLongLinger() async {
+        prefs.pauseOnMedia = true
+        prefs.contextLingerSec = 60
+        await drainMainQueue()
+        let engine = makeEngine()
+        let media = engine.context._testInstallDetector(flag: .mediaPlaying, enabled: \.pauseOnMedia)
+
+        media.simulate(detected: true)
+        media.simulate(detected: false)
+        try? await Task.sleep(for: .seconds(11))
+        await drainMainQueue()
+        #expect(engine.context.shouldHold,
+                "media linger must survive 11s (uses the configured 60s)")
+        engine.context._testSetHold(false) // clean up the pending linger
+    }
+
+    /// Mixed activity (call + video together): the long linger wins.
+    @Test func mixedClearingUsesLongLinger() async {
+        prefs.pauseOnMic = true
+        prefs.pauseOnMedia = true
+        prefs.contextLingerSec = 60
+        await drainMainQueue()
+        let engine = makeEngine()
+        let mic = engine.context._testInstallDetector(flag: .micInUse, enabled: \.pauseOnMic)
+        let media = engine.context._testInstallDetector(flag: .mediaPlaying, enabled: \.pauseOnMedia)
+
+        mic.simulate(detected: true)
+        media.simulate(detected: true)
+        mic.simulate(detected: false)
+        media.simulate(detected: false)
+        try? await Task.sleep(for: .seconds(11))
+        await drainMainQueue()
+        #expect(engine.context.shouldHold, "mixed clear keeps the long linger")
+        engine.context._testSetHold(false)
+    }
+}

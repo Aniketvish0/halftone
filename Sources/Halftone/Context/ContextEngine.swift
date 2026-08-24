@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 
 /// Composes all detectors into one answer: "should breaks be held right now,
@@ -15,10 +16,24 @@ final class ContextEngine {
     /// What the UI shows as the hold reason (kept during linger).
     private(set) var holdReasons: Set<ContextFlag> = []
 
-    /// Menu-ready summary of the hold reasons.
+    /// Menu-ready summary of the hold reasons. Mic holds name the app
+    /// responsible (WhatsApp keeps the mic open well after a call UI ends;
+    /// naming it turns a mystery hold into an explanation).
     var holdReasonsSummary: String {
-        let names = holdReasons.map(\.displayName).sorted().joined(separator: ", ")
-        return names.isEmpty ? "recent activity" : names
+        var names = holdReasons.map(\.displayName).sorted()
+        if holdReasons.contains(.micInUse) {
+            let apps = AudioProcessMonitor.shared.micPIDs
+                .compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName }
+                .sorted()
+            if !apps.isEmpty {
+                names = names.map {
+                    $0 == ContextFlag.micInUse.displayName
+                        ? "On a call (\(apps.joined(separator: ", ")))" : $0
+                }
+            }
+        }
+        let joined = names.joined(separator: ", ")
+        return joined.isEmpty ? "recent activity" : joined
     }
 
     var onChange: (() -> Void)?
@@ -32,6 +47,8 @@ final class ContextEngine {
     private let deepFocus = DeepFocusAppDetector()
 
     private var lingerTimer: DispatchSourceTimer?
+    /// The flags active just before the hold cleared, deciding the linger.
+    private var lastClearedFlags: Set<ContextFlag> = []
 
     /// Built once: detector paired with the preference that enables it.
     @ObservationIgnored
@@ -108,6 +125,7 @@ final class ContextEngine {
             guard changed else { return }
             lingerTimer?.cancel(); lingerTimer = nil
             holdReasons = flags
+            lastClearedFlags = flags
             setHold(true)
         } else if clearImmediately {
             // A toggle flip is an instruction, not an activity ending:
@@ -125,7 +143,20 @@ final class ContextEngine {
 
     private func startLinger() {
         lingerTimer?.cancel()
-        let linger = TimeInterval(prefs.contextLingerSec)
+        // Per-signal linger. Mic/camera/share are STABLE: they stay open for
+        // the whole call/recording, silences included, so their release
+        // means the activity is truly over. Ten seconds absorbs OS-level
+        // release wobble (WhatsApp holds the mic a while after hangup).
+        // Media genuinely flaps (chapter gaps, ad breaks), so only it earns
+        // the user's configurable long linger. Field bug: a WhatsApp hangup
+        // took 60+s of linger ON TOP of WhatsApp's own late mic release.
+        let stableFlags: Set<ContextFlag> = [.micInUse, .cameraInUse, .screenCaptured]
+        let linger: TimeInterval
+        if lastClearedFlags.subtracting(stableFlags).isEmpty && !lastClearedFlags.isEmpty {
+            linger = min(10, TimeInterval(prefs.contextLingerSec))
+        } else {
+            linger = TimeInterval(prefs.contextLingerSec)
+        }
         guard linger > 0 else {
             holdReasons = []
             setHold(false)
