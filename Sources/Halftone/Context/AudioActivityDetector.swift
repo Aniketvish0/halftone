@@ -268,6 +268,12 @@ final class AudioProcessMonitor {
 struct CallSession {
     static let minSeedDuration: TimeInterval = 2
     static let maxMuteSurvival: TimeInterval = 30 * 60
+    /// No call runs for >2 hours of continuous mic without a single mute or
+    /// break. A browser tab holding getUserMedia permanently (Dia/Arc pre-join
+    /// preview, a stuck WebRTC session) is the field case. After this ceiling
+    /// the session is expired, and the next mic release will not re-seed
+    /// until a genuine new session begins.
+    static let maxContinuousDuration: TimeInterval = 2 * 60 * 60
 
     /// pid -> bundle ID captured at seed time.
     private(set) var participants: [pid_t: String] = [:]
@@ -282,6 +288,9 @@ struct CallSession {
     /// a call must always be nameable; a nameless call was the field
     /// signature of the phantom bug).
     var participantBundleIDs: [String] { Array(Set(participants.values)).sorted() }
+
+    /// The first observation where a participant was seeded.
+    private var sessionStartedAt: Date?
 
     /// Feed one monitor observation. Returns true if liveness changed.
     mutating func observe(micPIDs: Set<pid_t>,
@@ -301,6 +310,7 @@ struct CallSession {
         // 2. Seed: candidates that have held the mic long enough.
         for (pid, since) in candidates where now.timeIntervalSince(since) >= Self.minSeedDuration {
             if let bid = bundleIDs[pid] {
+                if participants.isEmpty { sessionStartedAt = now }
                 participants[pid] = bid
             }
         }
@@ -318,10 +328,20 @@ struct CallSession {
             }
         }
 
-        // 5. TTL: a "call" that hasn't touched the mic in maxMuteSurvival
-        // is not a call.
+        // 5. TTL: a muted "call" that hasn't touched the mic in
+        // maxMuteSurvival is not a call.
         if isLive, now.timeIntervalSince(lastMicTouch) > Self.maxMuteSurvival {
             participants = [:]
+        }
+
+        // 6. Continuous-duration ceiling: a "call" with the mic held
+        // continuously for > maxContinuousDuration is a stuck browser tab,
+        // not a meeting.
+        if isLive, let start = sessionStartedAt,
+           now.timeIntervalSince(start) > Self.maxContinuousDuration,
+           !micPIDs.isEmpty {
+            participants = [:]
+            sessionStartedAt = nil
         }
 
         if !isLive { lastMicTouch = .distantPast }
@@ -332,6 +352,7 @@ struct CallSession {
         participants = [:]
         candidates = [:]
         lastMicTouch = .distantPast
+        sessionStartedAt = nil
     }
 }
 

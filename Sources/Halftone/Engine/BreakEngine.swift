@@ -544,9 +544,21 @@ final class BreakEngine {
         // gate must hold on restore too, or a pre-close countdown can fire an
         // overlay after hours).
         if let due = snap.workingDueAt, let kind = snap.workingKind,
-           due > Date(), Date().timeIntervalSince(snap.savedAt) < prefs.shortInterval,
            OfficeHours.isActive() {
-            enterWorking(due: due, kind: kind)
+            let awayDuration = Date().timeIntervalSince(snap.savedAt)
+            if due > Date(), awayDuration < prefs.shortInterval {
+                // Due in the future and saved recently: resume the countdown.
+                enterWorking(due: due, kind: kind)
+                return true
+            }
+            // Due in the past or stale: the user was away (sleep/shutdown).
+            // Credit the absence the way returnedFromIdle would, then start
+            // a fresh cycle. (Field bug: a laptop wake restored a past-due
+            // snapshot and fired a long break within 15s of opening the lid.)
+            if awayDuration >= prefs.longDuration {
+                lastLongBreakAt = Date()
+            }
+            scheduleNextBreak(from: Date())
             return true
         }
         return false
