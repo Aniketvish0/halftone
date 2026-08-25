@@ -24,7 +24,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         self.statusItem.autosaveName = "halftone-main"
         super.init()
 
-        let label = MenuBarLabel(engine: engine)
+        let label = MenuBarLabel(model: engine.menuBarModel)
         // NSStatusBarButton won't grow from subview constraints — the item
         // length must be driven explicitly. AutoWidthHostingView reports its
         // SwiftUI fitting width after every layout pass and we sync length.
@@ -53,25 +53,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        // Live status line (disabled item) when something non-obvious is happening.
-        let statusText: String? = {
-            switch engine.state {
-            case .heldByContext:
-                return "Holding: \(engine.context.holdReasonsSummary)"
-            case .working, .warning:
-                guard engine.context.shouldHold else { return nil }
-                return "Will hold: \(engine.context.holdReasonsSummary)"
-            case .idle: return "Away — time counts as your break"
-            case .offHours: return "Outside office hours"
-            case .pausedByUser(let until):
-                if let until {
-                    return "Paused until \(until.formatted(date: .omitted, time: .shortened))"
-                }
-                return "Paused"
-            default: return nil
-            }
-        }()
-        if let statusText {
+        // Live status line (disabled item): the same published string the
+        // engine derives, so menu and icon can never disagree.
+        if let statusText = engine.menuBarModel.statusLine {
             let item = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
@@ -150,46 +134,19 @@ final class AutoWidthHostingView<V: View>: NSHostingView<V> {
     }
 }
 
-/// The menu-bar label. Countdown text is rendered BY THE SYSTEM
+/// The menu-bar label. Reads ONLY the engine's published MenuBarModel at
+/// body top level: every change (state, hold, reasons) invalidates in one
+/// frame, regardless of countdown visibility or window occlusion. The
+/// TimelineView survives only around the per-minute countdown text; it can
+/// no longer delay an icon change. Countdown text is rendered BY THE SYSTEM
 /// (Text(timerInterval:)) — the app is asleep while it ticks.
 struct MenuBarLabel: View {
-    let engine: BreakEngine
-
-    /// States whose label can change with time (a countdown is showing).
-    private var needsClock: Bool {
-        guard Preferences.shared.showCountdownInMenuBar else { return false }
-        switch engine.state {
-        case .working, .warning, .inBreak: return true
-        default: return false
-        }
-    }
+    let model: MenuBarModel
 
     var body: some View {
-        // A countdown label re-derives each minute (and on every @Observable
-        // change), so a reading taken at a bad moment can never stick. States
-        // with no countdown skip the timeline entirely: no scheduled wakeups
-        // overnight in offHours/idle or with the countdown pref off.
-        if needsClock {
-            TimelineView(.periodic(from: .now, by: 60)) { context in
-                // context.date is the last tick, up to ~59s old on an
-                // @Observable-triggered re-render. Use the fresher of tick
-                // time and now so short warnings still get their ticker.
-                label(now: max(context.date, Date()))
-            }
-        } else {
-            label(now: Date())
-        }
-    }
+        let display = model.display
 
-    private func label(now: Date) -> some View {
-        let display = MenuBarDisplay.compute(
-            state: engine.state,
-            shouldHold: engine.context.shouldHold,
-            holdReasons: engine.context.holdReasons,
-            showCountdown: Preferences.shared.showCountdownInMenuBar,
-            now: now)
-
-        return HStack(spacing: 3) {
+        HStack(spacing: 3) {
             Image(systemName: display.symbol)
                 .symbolRenderingMode(.hierarchical)
                 .font(.system(size: 13, weight: .medium))
@@ -198,10 +155,15 @@ struct MenuBarLabel: View {
             case .none:
                 EmptyView()
             case .minutes(let m):
-                Text("\(m)m")
-                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                // Re-derive the minute figure on the timeline so it stays
+                // fresh between engine publishes; the published model keeps
+                // the anchor honest.
+                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                    Text("\(m)m")
+                        .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                }
             case .ticker(let end):
-                Text(timerInterval: now...max(end, now),
+                Text(timerInterval: Date()...max(end, Date()),
                      countsDown: true, showsHours: false)
                     .font(.system(size: 11.5, weight: .medium).monospacedDigit())
             }

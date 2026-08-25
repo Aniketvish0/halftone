@@ -57,8 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 func runProbe() {
     let seconds = Double(CommandLine.arguments.last ?? "30") ?? 30
     let engine = ContextEngine()
-    let idle = IdleMonitor()
-    idle.start()
+    let presence = PresenceMonitor()
+    presence.start()
 
     func flagList() -> String {
         engine.activeFlags.map(\.rawValue).sorted().joined(separator: ",")
@@ -74,7 +74,7 @@ func runProbe() {
     t.setEventHandler {
         let mic = AudioProcessMonitor.shared.micPIDs
         let out = AudioProcessMonitor.shared.outputPIDs
-        print("[tick] flags=[\(flagList())] hold=\(engine.shouldHold) micPIDs=\(mic) outPIDs=\(out) idleSec=\(Int(IdleMonitor.secondsSinceLastInput()))")
+        print("[tick] flags=[\(flagList())] hold=\(engine.shouldHold) micPIDs=\(mic) outPIDs=\(out) idleSec=\(Int(PresenceMonitor.secondsSinceLastInput())) presence=\(presence.presence.isAway ? "away" : "here")")
     }
     t.resume()
 
@@ -194,11 +194,13 @@ public func halftoneMain() {
             return
         }
 
-        // Single-instance guard: if another Halftone is already running, yield to it.
-        let others = NSRunningApplication.runningApplications(
-            withBundleIdentifier: "me.aniket.halftone"
-        ).filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
-        if !others.isEmpty {
+        // Single-instance guard. The LaunchServices scan was check-then-act:
+        // after a reboot, the login item and window-restore can both launch
+        // within LaunchServices' registration lag, both see zero others, and
+        // two instances then fight over one status-item slot and shared
+        // defaults (field bug: the visible icon belonged to a desynced twin).
+        // An O_EXCL lock file is atomic; a stale lock (dead PID) is taken over.
+        if !SingleInstanceLock.acquire() {
             exit(0)
         }
 

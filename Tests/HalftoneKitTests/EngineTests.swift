@@ -710,8 +710,13 @@ extension EngineTests {
         engine.context._testSetHold(false) // clean up the pending linger
     }
 
-    /// Mixed activity (call + video together): the long linger wins.
-    @Test func mixedClearingUsesLongLinger() async {
+    /// LINGER-CLASS CONTRACT (changed by the redesign): a hold that ever
+    /// contained the MIC gets the short linger even when media co-fired.
+    /// Browser calls (Meet/Zoom-web) hold display-sleep assertions, so
+    /// mic+media co-firing IS the browser-call profile; under the old rule
+    /// the stable branch was structurally unreachable for them and every
+    /// browser hangup waited 60+s.
+    @Test func browserCallProfileGetsShortLinger() async {
         prefs.pauseOnMic = true
         prefs.pauseOnMedia = true
         prefs.contextLingerSec = 60
@@ -726,8 +731,34 @@ extension EngineTests {
         media.simulate(detected: false)
         try? await Task.sleep(for: .seconds(11))
         await drainMainQueue()
-        #expect(engine.context.shouldHold, "mixed clear keeps the long linger")
+        #expect(!engine.context.shouldHold,
+                "a hold containing the mic releases on the short linger (browser-call fix)")
+    }
+
+    /// The inverse blip case: a pure VIDEO hold must keep the long linger
+    /// even if a mic blip flashed through mid-hold... unless the mic blip
+    /// makes it a call — the union rule says mic presence = short. Assert
+    /// the pure-media case is unaffected by the union tracking.
+    @Test func pureMediaHoldKeepsLongLingerAcrossComposition() async {
+        prefs.pauseOnMedia = true
+        prefs.pauseOnFullscreen = true
+        prefs.contextLingerSec = 60
+        await drainMainQueue()
+        let engine = makeEngine()
+        let media = engine.context._testInstallDetector(flag: .mediaPlaying, enabled: \.pauseOnMedia)
+        let fs = engine.context._testInstallDetector(flag: .fullscreenApp, enabled: \.pauseOnFullscreen)
+
+        media.simulate(detected: true)
+        fs.simulate(detected: true)   // composition changes mid-hold
+        fs.simulate(detected: false)
+        media.simulate(detected: false)
+        try? await Task.sleep(for: .seconds(11))
+        await drainMainQueue()
+        #expect(engine.context.shouldHold,
+                "media+fullscreen union has no mic: long linger holds at 11s")
         engine.context._testSetHold(false)
+        prefs.pauseOnFullscreen = false
+        await drainMainQueue()
     }
 }
 
@@ -804,47 +835,222 @@ extension EngineTests {
     }
 }
 
-// MARK: - Muted call survivorship
+// MARK: - Call session lifecycle grid
 
 @MainActor
 extension EngineTests {
 
-    /// THE FIELD BUG: muting a call releases the mic while the app keeps
-    /// producing output. The 10s stable linger then dropped the hold and a
-    /// LONG BREAK FIRED MID-CALL. The mic hold must survive a mute for as
-    /// long as the same app keeps outputting.
-    @Test func micHoldSurvivesMute() {
-        let mic = MicDetector()
-        // Drive the detector's own logic via the monitor seam.
-        AudioProcessMonitor.shared._testSetState(micPIDs: [111], outputPIDs: [111])
-        mic._testRecheck()
-        #expect(mic.isDetected, "call: mic+output detected")
+    /// Drive the pure CallSession through the full lifecycle grid. Every rule
+    /// traces to a field bug: blips can't seed; real calls seed; mutes survive
+    /// under the same identity; PID reuse can't sustain; TTL terminates;
+    /// anonymous processes can't seed.
+    @Test func callSessionLifecycleGrid() {
+        var t = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        func advance(_ dt: TimeInterval) -> Date { t = t.addingTimeInterval(dt); return t }
 
-        // MUTE: mic released, same PID still outputs (you hear the call).
-        AudioProcessMonitor.shared._testSetState(micPIDs: [], outputPIDs: [111])
-        mic._testRecheck()
-        #expect(mic.isDetected, "muted call: hold must survive (output continues)")
+        var s = CallSession()
+        let zoom: pid_t = 100
+        let zoomBid = "us.zoom.xos"
 
-        // Call actually ends: output gone too.
-        AudioProcessMonitor.shared._testSetState(micPIDs: [], outputPIDs: [])
-        mic._testRecheck()
-        #expect(!mic.isDetected, "session over: mic and output both gone")
+        // BLIP: one observation, mic gone 0.5s later -> never live.
+        _ = s.observe(micPIDs: [zoom], outputPIDs: [], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: t)
+        #expect(!s.isLive, "single observation must not seed")
+        _ = s.observe(micPIDs: [], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(0.5))
+        #expect(!s.isLive, "sub-threshold blip + continued audio must NOT be a call (the phantom)")
 
-        AudioProcessMonitor.shared._testClearState()
+        // REAL CALL: mic held across observations spanning >= 2s -> live.
+        s.reset()
+        _ = s.observe(micPIDs: [zoom], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: t)
+        _ = s.observe(micPIDs: [zoom], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(2.5))
+        #expect(s.isLive, "sustained mic must seed a call")
+        #expect(s.participantBundleIDs == [zoomBid], "call must be nameable")
+
+        // MUTE: mic gone, same PID+bundle still outputs -> survives.
+        _ = s.observe(micPIDs: [], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(5))
+        #expect(s.isLive, "mute with continued output must survive")
+
+        // IDENTITY: same PID, DIFFERENT bundle (PID reuse) -> ends.
+        _ = s.observe(micPIDs: [], outputPIDs: [zoom], bundleIDs: [zoom: "com.apple.Music"],
+                      anonymousPIDs: [], now: advance(5))
+        #expect(!s.isLive, "recycled PID under a different identity must end the session")
+
+        // HANGUP: re-seed, then mic AND output gone -> ends.
+        s.reset()
+        _ = s.observe(micPIDs: [zoom], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(1))
+        _ = s.observe(micPIDs: [zoom], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(2.5))
+        #expect(s.isLive)
+        _ = s.observe(micPIDs: [], outputPIDs: [], bundleIDs: [:],
+                      anonymousPIDs: [], now: advance(1))
+        #expect(!s.isLive, "hangup: mic and output both gone must end the session")
+
+        // ANONYMOUS: nil-bundle helper holds the mic forever -> never seeds.
+        s.reset()
+        let helper: pid_t = 200
+        _ = s.observe(micPIDs: [helper], outputPIDs: [helper], bundleIDs: [:],
+                      anonymousPIDs: [helper], now: advance(1))
+        _ = s.observe(micPIDs: [helper], outputPIDs: [helper], bundleIDs: [:],
+                      anonymousPIDs: [helper], now: advance(10))
+        #expect(!s.isLive, "anonymous processes must never seed a call (ignore-list bypass)")
+
+        // TTL: seeded call muted for > 30 min -> ends even with output.
+        s.reset()
+        _ = s.observe(micPIDs: [zoom], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(1))
+        _ = s.observe(micPIDs: [zoom], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(2.5))
+        #expect(s.isLive)
+        _ = s.observe(micPIDs: [], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(31 * 60))
+        #expect(!s.isLive, "a 'call' with no mic touch for 31 min is not a call (TTL)")
     }
 
-    /// Unrelated audio (music app) must not extend a call hold after hangup.
-    @Test func unrelatedOutputDoesNotExtendCallHold() {
+    /// MicDetector integrates CallSession with the monitor seam.
+    @Test func micDetectorSeedsFromSustainedCapture() {
         let mic = MicDetector()
-        AudioProcessMonitor.shared._testSetState(micPIDs: [111], outputPIDs: [111, 222])
-        mic._testRecheck()
-        #expect(mic.isDetected)
-
-        // Hangup: call app (111) fully gone; music (222) keeps playing.
-        AudioProcessMonitor.shared._testSetState(micPIDs: [], outputPIDs: [222])
-        mic._testRecheck()
-        #expect(!mic.isDetected, "music alone must not look like a call")
-
+        let t0 = Date()
+        AudioProcessMonitor.shared._testSetState(
+            micPIDs: [111], outputPIDs: [111], bundleIDs: [111: "us.zoom.xos"])
+        mic._testRecheck(now: t0)
+        #expect(!mic.isDetected, "first observation: candidate only")
+        mic._testRecheck(now: t0.addingTimeInterval(2.5))
+        #expect(mic.isDetected, "sustained capture must seed")
+        #expect(mic.callParticipants == ["us.zoom.xos"])
         AudioProcessMonitor.shared._testClearState()
+        mic._testRecheck(now: t0.addingTimeInterval(3))
+        #expect(!mic.isDetected)
+        mic.stop()
+    }
+}
+
+// MARK: - Presence: notification-loss and lifecycle
+
+@MainActor
+extension EngineTests {
+
+    /// THE RESTART BUG: a lock lands but the unlock notification is never
+    /// delivered (boot race). The poll backstop must still return the user:
+    /// evaluate() with unlocked+typing must exit away regardless of any
+    /// notification.
+    @Test func lockWithoutUnlockNotificationStillReturns() {
+        let monitor = PresenceMonitor()
+        monitor._testEnterAway(.locked)
+        #expect(monitor.presence.isAway)
+
+        // The poll observes: screen no longer locked, fresh input.
+        monitor._testCheck(now: Date(), idleSeconds: 0.5, locked: false)
+        #expect(!monitor.presence.isAway,
+                "unlock without its notification must exit via the poll backstop")
+        monitor.stop()
+    }
+
+    /// Unlocked but hands still off: away continues under hidIdle ownership
+    /// (the return poll), then a real return exits.
+    @Test func unlockWithHandsOffDecaysToHidIdleThenReturns() {
+        let monitor = PresenceMonitor()
+        monitor._testEnterAway(.locked, since: Date().addingTimeInterval(-100))
+        monitor._testCheck(now: Date(), idleSeconds: 90, locked: false)
+        #expect(monitor.presence.isAway, "no input yet: still away")
+        if case .away(_, let reason) = monitor.presence {
+            #expect(reason == .hidIdle, "ownership must decay to the return poll")
+        }
+        monitor._testCheck(now: Date(), idleSeconds: 0.3, locked: false)
+        #expect(!monitor.presence.isAway)
+        monitor.stop()
+    }
+
+    /// Engagement appearing during hidIdle away = cancellation, not return.
+    @Test func engagementCancelsHidIdleAway() {
+        let monitor = PresenceMonitor()
+        var engaged = false
+        monitor.isSuppressed = { engaged }
+        monitor._testEnterAway(.hidIdle, since: Date().addingTimeInterval(-300))
+        engaged = true
+        monitor._testCheck(now: Date(), idleSeconds: 300, locked: false)
+        #expect(!monitor.presence.isAway)
+        #expect(monitor.lastAwayWasCancelled,
+                "engagement with no input is a retraction, not a return")
+        monitor.stop()
+    }
+
+    /// A lock during hidIdle upgrades the reason but keeps the original
+    /// since (away duration must not reset).
+    @Test func lockDuringHidIdleKeepsAwayStart() {
+        let monitor = PresenceMonitor()
+        let origin = Date().addingTimeInterval(-200)
+        monitor._testEnterAway(.hidIdle, since: origin)
+        monitor._testEnterAway(.locked)
+        if case .away(let since, let reason) = monitor.presence {
+            #expect(reason == .locked)
+            #expect(abs(since.timeIntervalSince(origin)) < 1,
+                    "upgrade must keep the original away start")
+        } else {
+            Issue.record("must still be away")
+        }
+        monitor.stop()
+    }
+
+    /// Engine mapping: presence away/return round-trips through .idle with
+    /// the pending countdown restored exactly (cancellation path).
+    @Test func presenceCancellationRestoresCountdownThroughEngine() {
+        let engine = makeEngine()
+        let dueBefore = workingDue(engine)!
+
+        engine.presence._testEnterAway(.hidIdle, since: Date().addingTimeInterval(-10))
+        var isIdle = false
+        if case .idle = engine.state { isIdle = true }
+        #expect(isIdle, "presence away must map to engine .idle")
+
+        // Cancellation: engagement appeared, no input.
+        engine.presence.isSuppressed = { true }
+        engine.presence._testCheck(now: Date(), idleSeconds: 300, locked: false)
+        let dueAfter = workingDue(engine)
+        #expect(dueAfter != nil, "cancellation must restore working")
+        if let dueAfter {
+            #expect(abs(dueAfter.timeIntervalSince(dueBefore)) < 1,
+                    "restored due date must be exactly the interrupted one")
+        }
+        engine.presence.isSuppressed = { false }
+    }
+}
+
+// MARK: - Reflection: model publishes in one turn
+
+@MainActor
+extension EngineTests {
+
+    /// THE FIELD BUG: hold flips reached the menu bar only after up to 60s
+    /// (or unboundedly under occlusion) because the reads went untracked.
+    /// The published model must reflect a hold change in <= 1 runloop turn.
+    @Test func holdFlipReachesMenuModelImmediately() {
+        let engine = makeEngine()
+        #expect(engine.menuBarModel.display.symbol == "circle.lefthalf.filled")
+
+        engine.context._testSetHold(true, reasons: [.mediaPlaying])
+        #expect(engine.menuBarModel.display.symbol == ContextFlag.mediaPlaying.symbolName,
+                "hold flip must publish the reason icon synchronously")
+        #expect(engine.menuBarModel.statusLine?.hasPrefix("Will hold:") == true,
+                "menu status must publish with the same flip")
+
+        engine.context._testSetHold(false)
+        #expect(engine.menuBarModel.display.symbol == "circle.lefthalf.filled",
+                "hold release must publish the working icon synchronously")
+        #expect(engine.menuBarModel.statusLine == nil)
+    }
+
+    /// State transitions publish too (pause -> icon changes with no timeline).
+    @Test func stateChangeReachesMenuModelImmediately() {
+        let engine = makeEngine()
+        engine.pause()
+        #expect(engine.menuBarModel.display.symbol == "pause.circle")
+        #expect(engine.menuBarModel.statusLine == "Paused")
+        engine.resume()
+        #expect(engine.menuBarModel.display.symbol == "circle.lefthalf.filled")
     }
 }

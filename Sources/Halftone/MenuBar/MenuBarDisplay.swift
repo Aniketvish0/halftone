@@ -58,3 +58,23 @@ struct MenuBarDisplay: Equatable {
         return .init(symbol: symbol, countdown: .ticker(until: end))
     }
 }
+
+
+/// Stored, observable display state for the menu bar. Single writer: the
+/// engine's syncUI (which runs on every transition AND context change).
+/// The label reads only this model at body top level, so every change
+/// invalidates the view in one frame. Field bug: hold flips read inside a
+/// TimelineView closure went untracked, so the icon lagged up to 60s and
+/// unboundedly under occlusion.
+@Observable
+@MainActor
+final class MenuBarModel {
+    private(set) var display = MenuBarDisplay(symbol: "circle.lefthalf.filled",
+                                              countdown: .none)
+    private(set) var statusLine: String?
+
+    func update(display: MenuBarDisplay, statusLine: String?) {
+        if display != self.display { self.display = display }
+        if statusLine != self.statusLine { self.statusLine = statusLine }
+    }
+}

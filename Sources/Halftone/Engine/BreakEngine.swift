@@ -61,8 +61,9 @@ final class BreakEngine {
     var warningPill: WarningPillController?
     var ambientGlow: AmbientGlowController?
     var microReminders: MicroReminders?
+    let menuBarModel = MenuBarModel()
     let context = ContextEngine()
-    private let idleMonitor = IdleMonitor()
+    let presence = PresenceMonitor()
 
     init() {
         NotificationCenter.default.addObserver(
@@ -70,21 +71,19 @@ final class BreakEngine {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.preferencesChanged() }
         }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.systemWoke() }
-        }
-
         context.onChange = { [weak self] in
             guard let self else { return }
             self.contextChanged()
-            // Hold changes rarely transition (mid-working), but they flip
-            // the reminder gate: re-evaluate it here, not only in syncUI.
+            // Hold changes rarely transition (mid-working): re-evaluate the
+            // reminder gate and republish the display here, not only in
+            // syncUI. (Field bug: mid-working hold flips never reached the
+            // menu bar until the next timeline tick, up to 60s or unbounded
+            // under occlusion.)
             self.microReminders?.setActive(self.allowsMicroReminders)
+            self.publishDisplay()
         }
 
-        idleMonitor.isSuppressed = { [weak self] in
+        presence.isSuppressed = { [weak self] in
             // Sitting still on a call, camera on, sharing, or watching is
             // not "away": raw engagement detection, deliberately not gated
             // on the hold toggles (those choose break-holding, not away
@@ -93,27 +92,12 @@ final class BreakEngine {
             // the "return" credited a break.
             self?.context.isEngaged ?? false
         }
-        idleMonitor.onWentIdle = { [weak self] in self?.enterIdle(since: Date()) }
-        idleMonitor.onReturned = { [weak self] away in self?.returnedFromIdle(after: away) }
-        idleMonitor.onIdleCancelled = { [weak self] in self?.idleCancelled() }
-        if prefs.idleEnabled { idleMonitor.start() }
-
-        // Sleep/lock also mean "away" — treat like idle without threshold.
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.systemWentAway() }
+        presence.onChange = { [weak self] old, new in
+            self?.presenceChanged(from: old, to: new)
         }
-        DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.systemWentAway() }
-        }
-        DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.systemCameBack() }
-        }
+        // Presence starts with the engine (HalftoneApp calls start()), never
+        // before it: starting the monitor in init raced engine.start() and
+        // desynced the two on every cold boot.
     }
 
     // MARK: - Context (Smart Pause) integration
@@ -149,10 +133,25 @@ final class BreakEngine {
         }
     }
 
-    // MARK: - Idle / away integration
+    // MARK: - Presence integration (single owner: PresenceMonitor)
+
+    private func presenceChanged(from old: Presence, to new: Presence) {
+        switch (old.isAway, new.isAway) {
+        case (false, true):
+            enterIdle(since: { if case .away(let s, _) = new { return s } ; return Date() }())
+        case (true, false):
+            if presence.lastAwayWasCancelled {
+                idleCancelled()
+            } else if case .away(let since, _) = old {
+                returnedFromIdle(after: Date().timeIntervalSince(since))
+            }
+        default:
+            break
+        }
+    }
 
     /// Captures the interrupted countdown (if any) so a short absence can
-    /// restore it. Used by both idle detection and lock/sleep.
+    /// restore it.
     private func enterIdle(since: Date) {
         switch state {
         case .working(let due, let kind), .warning(let due, let kind):
@@ -187,9 +186,8 @@ final class BreakEngine {
         }
     }
 
-    /// The idle call was wrong (engagement with no input). Restore exactly
-    /// what was interrupted: the pending countdown if it's still in the
-    /// future, the overdue grace path if not. Never a fresh cycle.
+    /// The away call was wrong (engagement with no input). Restore exactly
+    /// what was interrupted; never a fresh cycle.
     private func idleCancelled() {
         guard case .idle(_, let pending) = state else { return }
         if let pending {
@@ -200,52 +198,6 @@ final class BreakEngine {
             }
         } else {
             scheduleNextBreak(from: Date())
-        }
-    }
-
-    private func systemWentAway() {
-        switch state {
-        case .inBreak, .pausedByUser, .idle:
-            break // .idle keeps its original since (enterIdle would no-op anyway)
-        default:
-            enterIdle(since: Date())
-        }
-    }
-
-    private func systemCameBack() {
-        wakeRecovery.stop()
-        // The idle state carries its own timestamp; no separate bookkeeping.
-        guard case .idle(let since, _) = state else { return }
-        returnedFromIdle(after: Date().timeIntervalSince(since))
-    }
-
-    /// Wake without a lock (no password after sleep, auto-login) never posts
-    /// screenIsUnlocked — treat wake itself as the return unless the screen is
-    /// actually still locked. The unlock notification normally finishes the
-    /// job, but its delivery is not guaranteed (observed: engine stuck on the
-    /// moon icon for minutes after a next-day wake), so a cheap poll backstops
-    /// it: unlocked + fresh input = the user is back, notification or not.
-    private func systemWoke() {
-        if case .idle = state, !CGSession.flag("CGSSessionScreenIsLocked") {
-            systemCameBack()
-        } else {
-            evaluate()
-            startWakeRecoveryIfIdle()
-        }
-    }
-
-    private func startWakeRecoveryIfIdle() {
-        guard case .idle = state else { return }
-        wakeRecovery.start(interval: 2, leeway: .seconds(1), firstDelay: 2) { [weak self] in
-            guard let self else { return }
-            guard case .idle = self.state else {
-                self.wakeRecovery.stop()
-                return
-            }
-            if !CGSession.flag("CGSSessionScreenIsLocked"),
-               IdleMonitor.secondsSinceLastInput() < 2 {
-                self.systemCameBack()
-            }
         }
     }
 
@@ -269,6 +221,9 @@ final class BreakEngine {
         if !restoreSnapshot() {
             scheduleNextBreak(from: Date())
         }
+        // Presence starts AFTER the engine has a real state: starting it in
+        // init raced restore and desynced monitor/engine on every cold boot.
+        if prefs.idleEnabled { presence.start() }
     }
 
     func pause(for duration: TimeInterval? = nil) {
@@ -409,7 +364,20 @@ final class BreakEngine {
     /// Every state change funnels through here: persist, re-arm the timer,
     /// and reconcile the two imperative UI surfaces with the new state. The
     /// menu bar needs nothing — it derives from `state` via @Observable.
+    private var isTransitioning = false
+
     private func transition(_ new: State) {
+        // syncUI's side effects (making the overlay key, hiding panels) can
+        // post workspace notifications that synchronously re-enter here via
+        // detector callbacks; the nested transition then fired hooks out of
+        // order against stale state. Defer nested requests one turn.
+        guard !isTransitioning else {
+            DispatchQueue.main.async { [weak self] in self?.transition(new) }
+            return
+        }
+        isTransitioning = true
+        defer { isTransitioning = false }
+
         let old = state
         state = new
         persistSnapshot()
@@ -503,6 +471,37 @@ final class BreakEngine {
         } else {
             overlayController?.hide()
         }
+        publishDisplay()
+    }
+
+    /// The single writer of the menu bar's observable state. Called on every
+    /// transition (via syncUI) and every context change, so the icon can
+    /// never lag a state change.
+    private func publishDisplay() {
+        let display = MenuBarDisplay.compute(
+            state: state,
+            shouldHold: context.shouldHold,
+            holdReasons: context.holdReasons,
+            showCountdown: prefs.showCountdownInMenuBar,
+            now: Date())
+        let statusLine: String? = {
+            switch state {
+            case .heldByContext:
+                return "Holding: \(context.holdReasonsSummary)"
+            case .working, .warning:
+                guard context.shouldHold else { return nil }
+                return "Will hold: \(context.holdReasonsSummary)"
+            case .idle: return "Away, time counts as your break"
+            case .offHours: return "Outside office hours"
+            case .pausedByUser(let until):
+                if let until {
+                    return "Paused until \(until.formatted(date: .omitted, time: .shortened))"
+                }
+                return "Paused"
+            default: return nil
+            }
+        }()
+        menuBarModel.update(display: display, statusLine: statusLine)
     }
 
     // MARK: - Session resume
@@ -518,9 +517,18 @@ final class BreakEngine {
 
     private func persistSnapshot() {
         var snap = Snapshot(savedAt: Date(), lastLongBreakAt: lastLongBreakAt)
-        if case .working(let due, let kind) = state {
+        switch state {
+        case .working(let due, let kind):
             snap.workingDueAt = due
             snap.workingKind = kind
+        case .idle(_, let pending?):
+            // A lock-then-shutdown must not discard the in-flight cycle:
+            // restore treats this like a short absence (due still honored
+            // if future, warnSoon otherwise via the normal restore gate).
+            snap.workingDueAt = pending.dueAt
+            snap.workingKind = pending.kind
+        default:
+            break
         }
         if let data = try? Self.snapshotEncoder.encode(snap) {
             Defaults.store.set(data, forKey: "engineSnapshot")
@@ -548,11 +556,11 @@ final class BreakEngine {
 
     private func preferencesChanged() {
         if prefs.idleEnabled {
-            idleMonitor.start()
+            presence.start()
         } else {
-            idleMonitor.stop()
+            presence.stop()
             // Disabling idle detection while away would strand .idle forever
-            // (its only exit is the monitor's return callback).
+            // (its only exit is the monitor's callback).
             if case .idle = state { scheduleNextBreak(from: Date()) }
         }
 

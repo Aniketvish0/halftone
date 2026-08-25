@@ -16,14 +16,19 @@ final class ContextEngine {
     /// What the UI shows as the hold reason (kept during linger).
     private(set) var holdReasons: Set<ContextFlag> = []
 
-    /// Menu-ready summary of the hold reasons. Mic holds name the app
-    /// responsible (WhatsApp keeps the mic open well after a call UI ends;
-    /// naming it turns a mystery hold into an explanation).
+    /// Menu-ready summary of the hold reasons. Call holds name the apps
+    /// SUSTAINING the session (participants survive mutes; the live mic set
+    /// is empty while muted, and a nameless "On a call" was the field
+    /// signature of the phantom-call bug).
     var holdReasonsSummary: String {
         var names = holdReasons.map(\.displayName).sorted()
         if holdReasons.contains(.micInUse) {
-            let apps = AudioProcessMonitor.shared.micPIDs
-                .compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName }
+            let apps = mic.callParticipants
+                .map { bid in
+                    NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)
+                        .flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleName"] as? String }
+                        ?? bid
+                }
                 .sorted()
             if !apps.isEmpty {
                 names = names.map {
@@ -47,8 +52,11 @@ final class ContextEngine {
     private let deepFocus = DeepFocusAppDetector()
 
     private var lingerTimer: DispatchSourceTimer?
-    /// The flags active just before the hold cleared, deciding the linger.
-    private var lastClearedFlags: Set<ContextFlag> = []
+    /// Union of every flag seen during the CURRENT hold, deciding the linger
+    /// class on release. (Field bugs: tracking only the last non-empty set
+    /// let a 0.3s media blip flip a pure call onto the 60s linger, and let
+    /// one mic sample truncate a video's linger to 10s.)
+    private var holdUnion: Set<ContextFlag> = []
 
     /// Built once: detector paired with the preference that enables it.
     @ObservationIgnored
@@ -61,9 +69,25 @@ final class ContextEngine {
         (deepFocus, \.pauseOnDeepFocusApps),
     ]
 
+    private var recomputePending = false
+
+    /// One recompute per runloop turn: a single CoreAudio event updates
+    /// several detectors, each firing onChange; recomputing on the first
+    /// callback observed a half-updated world in dictionary order (spurious
+    /// linger starts, icon flaps).
+    private func scheduleRecompute() {
+        guard !recomputePending else { return }
+        recomputePending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.recomputePending = false
+            self.recompute()
+        }
+    }
+
     init() {
         for (detector, _) in all {
-            detector.onChange = { [weak self] in self?.recompute() }
+            detector.onChange = { [weak self] in self?.scheduleRecompute() }
         }
         NotificationCenter.default.addObserver(
             forName: Preferences.changed, object: nil, queue: .main
@@ -125,7 +149,7 @@ final class ContextEngine {
             guard changed else { return }
             lingerTimer?.cancel(); lingerTimer = nil
             holdReasons = flags
-            lastClearedFlags = flags
+            holdUnion.formUnion(flags)
             setHold(true)
         } else if clearImmediately {
             // A toggle flip is an instruction, not an activity ending:
@@ -133,6 +157,7 @@ final class ContextEngine {
             guard shouldHold else { return }
             lingerTimer?.cancel(); lingerTimer = nil
             holdReasons = []
+            holdUnion = []
             setHold(false)
         } else if changed {
             // Activity ended on its own: keep holding through the linger
@@ -151,12 +176,18 @@ final class ContextEngine {
         // the user's configurable long linger. Field bug: a WhatsApp hangup
         // took 60+s of linger ON TOP of WhatsApp's own late mic release.
         let stableFlags: Set<ContextFlag> = [.micInUse, .cameraInUse, .screenCaptured]
-        let linger: TimeInterval
-        if lastClearedFlags.subtracting(stableFlags).isEmpty && !lastClearedFlags.isEmpty {
-            linger = min(10, TimeInterval(prefs.contextLingerSec))
-        } else {
-            linger = TimeInterval(prefs.contextLingerSec)
-        }
+        let union = holdUnion
+        holdUnion = []
+        // A call is stable evidence (the mic session outlives silences and
+        // mutes via CallSession), so a hold that ever contained the mic gets
+        // the short linger even when media co-fired: browser calls hold
+        // display-sleep assertions, which made the long class structurally
+        // mandatory for every Meet/Zoom-web call.
+        let stable = !union.isEmpty
+            && (union.subtracting(stableFlags).isEmpty || union.contains(.micInUse))
+        let linger: TimeInterval = stable
+            ? min(10, TimeInterval(prefs.contextLingerSec))
+            : TimeInterval(prefs.contextLingerSec)
         guard linger > 0 else {
             holdReasons = []
             setHold(false)
@@ -223,6 +254,8 @@ final class ContextEngine {
         }
         all.removeAll { $0.detector.flag == flag }
         let d = _TestDetector(flag: flag)
+        // Synchronous recompute keeps test assertions deterministic (real
+        // detectors coalesce; fakes fire one at a time).
         d.onChange = { [weak self] in self?.recompute() }
         all.append((d, enabled))
         applyToggles()

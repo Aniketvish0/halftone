@@ -34,3 +34,39 @@ enum CGSession {
         return (dict[key] as? Bool) ?? false
     }
 }
+
+
+/// Atomic single-instance guard: O_CREAT|O_EXCL lock file holding our PID.
+/// Exclusive creation is atomic at the filesystem level (no TOCTOU); a lock
+/// left by a dead PID is removed and re-acquired once.
+enum SingleInstanceLock {
+    private static var lockPath: String {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory,
+                                           in: .userDomainMask)[0]
+            .appendingPathComponent("Halftone", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("instance.lock").path
+    }
+
+    static func acquire() -> Bool {
+        for attempt in 0..<2 {
+            let fd = open(lockPath, O_CREAT | O_EXCL | O_WRONLY, 0o644)
+            if fd >= 0 {
+                let pid = "\(ProcessInfo.processInfo.processIdentifier)"
+                _ = pid.withCString { write(fd, $0, strlen($0)) }
+                close(fd)
+                atexit { try? FileManager.default.removeItem(atPath: SingleInstanceLock.lockPath) }
+                return true
+            }
+            // Lock exists: live owner keeps it; a dead owner's lock is stale.
+            guard attempt == 0,
+                  let contents = try? String(contentsOfFile: lockPath, encoding: .utf8),
+                  let ownerPID = pid_t(contents.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  kill(ownerPID, 0) != 0 else {
+                return false
+            }
+            try? FileManager.default.removeItem(atPath: lockPath)
+        }
+        return false
+    }
+}
