@@ -8,8 +8,9 @@ import Foundation
 struct MenuBarDisplay: Equatable {
     enum Countdown: Equatable {
         case none
-        /// "Nm" static label, re-derived each minute.
-        case minutes(Int)
+        /// The end date is > 60s away: the label renders minutes-remaining
+        /// from the current clock, re-derived each minute inside a timeline.
+        case minutesUntil(Date)
         /// System-rendered live ticker until this date (final minute).
         case ticker(until: Date)
     }
@@ -53,7 +54,7 @@ struct MenuBarDisplay: Equatable {
 
         let remaining = end.timeIntervalSince(now)
         if remaining > 60 {
-            return .init(symbol: symbol, countdown: .minutes(Int((remaining / 60).rounded(.up))))
+            return .init(symbol: symbol, countdown: .minutesUntil(end))
         }
         return .init(symbol: symbol, countdown: .ticker(until: end))
     }

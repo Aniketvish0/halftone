@@ -154,12 +154,11 @@ struct MenuBarLabel: View {
             switch display.countdown {
             case .none:
                 EmptyView()
-            case .minutes(let m):
-                // Re-derive the minute figure on the timeline so it stays
-                // fresh between engine publishes; the published model keeps
-                // the anchor honest.
-                TimelineView(.periodic(from: .now, by: 60)) { _ in
-                    Text("\(m)m")
+            case .minutesUntil(let end):
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    let remaining = end.timeIntervalSince(max(context.date, Date()))
+                    let mins = max(0, Int((remaining / 60).rounded(.up)))
+                    Text("\(mins)m")
                         .font(.system(size: 11.5, weight: .medium).monospacedDigit())
                 }
             case .ticker(let end):

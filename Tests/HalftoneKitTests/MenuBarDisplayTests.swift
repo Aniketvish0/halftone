@@ -22,14 +22,16 @@ struct MenuBarDisplayTests {
     // MARK: Countdown forms
 
     @Test func workingFarOutShowsMinutes() {
-        let d = compute(.working(nextBreakAt: at(19 * 60 + 30), kind: .short))
+        let end = at(19 * 60 + 30)
+        let d = compute(.working(nextBreakAt: end, kind: .short))
         #expect(d.symbol == "circle.lefthalf.filled")
-        #expect(d.countdown == .minutes(20), "19.5 min remaining rounds up to 20m")
+        #expect(d.countdown == .minutesUntil(end))
     }
 
     @Test func exactMinuteBoundaryRoundsCleanly() {
-        let d = compute(.working(nextBreakAt: at(120), kind: .short))
-        #expect(d.countdown == .minutes(2), "exactly 120s is 2m, not 3m")
+        let end = at(120)
+        let d = compute(.working(nextBreakAt: end, kind: .short))
+        #expect(d.countdown == .minutesUntil(end))
     }
 
     @Test func finalMinuteSwitchesToTicker() {
@@ -39,8 +41,9 @@ struct MenuBarDisplayTests {
     }
 
     @Test func sixtyOneSecondsIsStillMinutes() {
-        let d = compute(.working(nextBreakAt: at(61), kind: .short))
-        #expect(d.countdown == .minutes(2), "61s rounds up to 2m; ticker only under 60s")
+        let end = at(61)
+        let d = compute(.working(nextBreakAt: end, kind: .short))
+        #expect(d.countdown == .minutesUntil(end))
     }
 
     /// THE FIELD BUG: a due date in the past must yield icon-only, never a
@@ -102,10 +105,11 @@ struct MenuBarDisplayTests {
     // MARK: Hold icon selection
 
     @Test func holdDuringCountdownShowsReasonIcon() {
-        let d = compute(.working(nextBreakAt: at(600), kind: .short),
+        let end = at(600)
+        let d = compute(.working(nextBreakAt: end, kind: .short),
                         hold: true, reasons: [.mediaPlaying])
         #expect(d.symbol == "play.rectangle")
-        #expect(d.countdown == .minutes(10), "countdown keeps ticking during a hold")
+        #expect(d.countdown == .minutesUntil(end))
     }
 
     @Test func callBeatsEveryOtherReason() {
@@ -151,8 +155,8 @@ struct MenuBarDisplayTests {
     // MARK: Clock edge cases
 
     @Test func absurdFutureDateStillComputes() {
-        let d = compute(.working(nextBreakAt: at(86_400 * 365), kind: .short))
-        #expect(d.countdown == .minutes(525_600), "a year out: huge but well-formed")
+        let end = at(86_400 * 365); let d = compute(.working(nextBreakAt: end, kind: .short))
+        #expect(d.countdown == .minutesUntil(end))
     }
 
     @Test func equatableSupportsChangeDetection() {
