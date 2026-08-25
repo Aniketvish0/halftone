@@ -332,22 +332,28 @@ final class BreakEngine {
     /// moment (no event monitoring, no permissions): if the last keydown or
     /// drag is fresher than this, wait briefly and re-check.
     private static let typingHoldWindow: TimeInterval = 3
+    /// Max deferrals before the break fires anyway. A user in Claude Code
+    /// types continuously, so without a ceiling the break defers forever in
+    /// 5-second loops, showing a frozen "20m" countdown the whole time.
+    static let maxTypingRetries = 3
+    private var typingRetries = 0
 
     private func beginBreak(kind: BreakKind, force: Bool = false) {
         if context.shouldHold, !force {
             transition(.heldByContext(kind: kind, overdueSince: Date()))
             return
         }
-        if !force, Self.userIsMidInput() {
-            // Don't yank the screen away mid-sentence: retry shortly. The
-            // warning state stays as-is; evaluate() re-lands here.
+        if !force, typingRetries < Self.maxTypingRetries, Self.userIsMidInput() {
+            typingRetries += 1
             let t = DispatchSource.makeTimerSource(queue: .main)
             t.schedule(deadline: .now() + 5, leeway: .seconds(1))
             t.setEventHandler { [weak self] in self?.evaluate() }
             t.resume()
             timer = t
+            publishDisplay() // update the countdown from "20m" to the real remaining
             return
         }
+        typingRetries = 0
         let duration = kind == .long ? prefs.longDuration : prefs.shortDuration
         transition(.inBreak(kind: kind, endsAt: Date().addingTimeInterval(duration)))
         if prefs.playSounds { NSSound(named: "Glass")?.play() }

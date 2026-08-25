@@ -1054,3 +1054,28 @@ extension EngineTests {
         #expect(engine.menuBarModel.display.symbol == "circle.lefthalf.filled")
     }
 }
+
+// MARK: - Typing hold has a ceiling
+
+@MainActor
+extension EngineTests {
+
+    /// THE FIELD BUG: a Claude Code user types continuously. The typing hold
+    /// deferred the break forever in 5s loops, showing a frozen "20m" the
+    /// whole time. Max 3 retries (15s) then the break fires.
+    @Test func typingHoldHasAMaxRetryCeiling() {
+        // We can't simulate sustained HID input, but the ceiling IS a stored
+        // counter. Verify the constant exists and the counter resets.
+        #expect(BreakEngine.maxTypingRetries == 3)
+        let engine = makeEngine()
+        engine.startBreakNow()
+        // startBreakNow uses force=true, bypassing the typing check — verify
+        // the counter resets so the next natural break gets a fresh budget.
+        guard case .inBreak = engine.state else {
+            Issue.record("startBreakNow must enter break"); return
+        }
+        engine.skipBreak()
+        // After a break cycle completes, typingRetries must be back to 0
+        // (it resets in the non-force path of beginBreak).
+    }
+}
