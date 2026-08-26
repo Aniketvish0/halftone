@@ -156,9 +156,9 @@ struct MenuBarLabel: View {
                 EmptyView()
             case .minutesUntil(let end):
                 TimelineView(.periodic(from: .now, by: 60)) { context in
-                    let remaining = end.timeIntervalSince(max(context.date, Date()))
-                    if remaining > 0 {
-                        Text("\(Int((remaining / 60).rounded(.up)))m")
+                    let now = max(context.date, Date())
+                    if end > now {
+                        Text("\(MenuBarDisplay.minutesRemaining(until: end, from: now))m")
                             .font(.system(size: 11.5, weight: .medium).monospacedDigit())
                     }
                 }

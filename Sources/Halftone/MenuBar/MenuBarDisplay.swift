@@ -6,6 +6,12 @@ import Foundation
 /// transiently-invalid reading self-heals on the next tick instead of
 /// sticking until something else happens to re-render the view.
 struct MenuBarDisplay: Equatable {
+    /// The one minutes-remaining policy (round up): both the menu bar and
+    /// the Shortcuts status must show the same number.
+    static func minutesRemaining(until end: Date, from now: Date = Date()) -> Int {
+        max(0, Int((end.timeIntervalSince(now) / 60).rounded(.up)))
+    }
+
     enum Countdown: Equatable {
         case none
         /// The end date is > 60s away: the label renders minutes-remaining

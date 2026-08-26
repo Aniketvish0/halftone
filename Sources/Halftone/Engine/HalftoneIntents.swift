@@ -71,7 +71,7 @@ struct BreakStatusIntent: AppIntent {
         let status: String
         switch engine.state {
         case .working(let due, _):
-            status = "working, break in \(max(0, Int(due.timeIntervalSinceNow / 60))) min"
+            status = "working, break in \(MenuBarDisplay.minutesRemaining(until: due)) min"
         case .warning: status = "break imminent"
         case .inBreak(_, let endsAt):
             status = "on break, \(max(0, Int(endsAt.timeIntervalSinceNow))) s left"

@@ -256,9 +256,11 @@ final class AudioProcessMonitor {
 /// - Ceiling: continuous mic past maxContinuousDuration is not a call.
 struct CallSession {
     static let minSeedDuration: TimeInterval = 2
-    /// A muted call must re-touch the mic within this window; browser
-    /// helpers multiplex tabs, so same-PID output alone is weak evidence.
-    static let maxMuteSurvival: TimeInterval = 3 * 60
+    /// A muted call must re-touch the mic within this window, measured from
+    /// the observed mute. Browser helpers multiplex tabs, so same-PID output
+    /// alone is weak evidence; but real group-call mutes routinely run long,
+    /// so the window must not truncate them.
+    static let maxMuteSurvival: TimeInterval = 10 * 60
     /// Continuous mic past this is a stuck tab, not a meeting.
     static let maxContinuousDuration: TimeInterval = 2 * 60 * 60
 
@@ -276,6 +278,14 @@ struct CallSession {
 
     /// The first observation where a participant was seeded.
     private var sessionStartedAt: Date?
+    /// When the mic was first OBSERVED gone while the session lived. The TTL
+    /// measures from here; measuring from the last event killed quiet steady
+    /// calls at the mute instant (stale lastMicTouch).
+    private var muteObservedAt: Date?
+    /// PIDs expired by the continuous-duration ceiling. Quarantined from
+    /// seeding until they release the mic (otherwise the stuck tab re-seeds
+    /// within a second and the ceiling never actually ends the hold).
+    private var quarantined: Set<pid_t> = []
 
     /// Feed one monitor observation. Returns true if liveness changed.
     mutating func observe(micPIDs: Set<pid_t>,
@@ -285,8 +295,11 @@ struct CallSession {
                           now: Date = Date()) -> Bool {
         let wasLive = isLive
 
+        // Quarantine lifts only when the stuck PID finally releases the mic.
+        quarantined.formIntersection(micPIDs)
+
         // 1. Candidate tracking: named PIDs currently on the mic.
-        let seedable = micPIDs.subtracting(anonymousPIDs)
+        let seedable = micPIDs.subtracting(anonymousPIDs).subtracting(quarantined)
         candidates = candidates.filter { seedable.contains($0.key) }
         for pid in seedable where candidates[pid] == nil {
             candidates[pid] = now
@@ -300,9 +313,12 @@ struct CallSession {
             }
         }
 
-        // 3. Mic touch refreshes the TTL.
-        if !micPIDs.isEmpty && !participants.isEmpty {
-            lastMicTouch = now
+        // 3. Track the observed mute boundary.
+        if !micPIDs.isEmpty {
+            if !participants.isEmpty { lastMicTouch = now }
+            muteObservedAt = nil
+        } else if isLive, muteObservedAt == nil {
+            muteObservedAt = now
         }
 
         // 4. Survivorship: participants must keep outputting under the SAME
@@ -313,15 +329,19 @@ struct CallSession {
             }
         }
 
-        // 5. Mute TTL.
-        if isLive, now.timeIntervalSince(lastMicTouch) > Self.maxMuteSurvival {
+        // 5. Mute TTL, measured from the observed mute.
+        if isLive, let muted = muteObservedAt,
+           now.timeIntervalSince(muted) > Self.maxMuteSurvival {
             participants = [:]
         }
 
-        // 6. Continuous-duration ceiling.
+        // 6. Continuous-duration ceiling: expire AND quarantine, or the
+        // stuck PID re-seeds within a second and the hold never drops.
         if isLive, let start = sessionStartedAt,
            now.timeIntervalSince(start) > Self.maxContinuousDuration,
            !micPIDs.isEmpty {
+            quarantined.formUnion(participants.keys)
+            candidates = candidates.filter { !quarantined.contains($0.key) }
             participants = [:]
             sessionStartedAt = nil
         }
@@ -335,6 +355,8 @@ struct CallSession {
         candidates = [:]
         lastMicTouch = .distantPast
         sessionStartedAt = nil
+        muteObservedAt = nil
+        quarantined = []
     }
 }
 
@@ -385,10 +407,17 @@ final class MicDetector: ContextDetector {
                                       anonymousPIDs: monitor.anonymousPIDs,
                                       now: now)
 
-        // Seeding needs a second observation; CoreAudio may stay silent
-        // until release. Poll only while an unseeded candidate exists.
+        // Two windows need self-observation (CoreAudio stays silent between
+        // state changes): an unseeded candidate (fast poll, so a 2s seed can
+        // be observed before release) and a muted survivorship (slow poll,
+        // so the mute TTL can actually fire between events).
         if !monitor.micPIDs.isEmpty && !session.isLive {
             seedTimer.start(interval: 1, leeway: .milliseconds(200)) { [weak self] in
+                self?.recheck()
+            }
+        } else if session.isLive && monitor.micPIDs.isEmpty {
+            seedTimer.stop()
+            seedTimer.start(interval: 30, leeway: .seconds(5)) { [weak self] in
                 self?.recheck()
             }
         } else {

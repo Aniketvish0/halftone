@@ -79,9 +79,12 @@ final class BreakEngine {
         }
 
         presence.isSuppressed = { [weak self] in
+            guard let self else { return false }
+            // Sitting still during a break IS the break, not absence.
+            if case .inBreak = self.state { return true }
             // Raw engagement, not hold toggles: sitting still on a call or
             // watching is not "away" regardless of break preferences.
-            self?.context.isEngaged ?? false
+            return self.context.isEngaged
         }
         presence.onChange = { [weak self] old, new in
             self?.presenceChanged(from: old, to: new)
@@ -134,8 +137,17 @@ final class BreakEngine {
             } else if case .away(let since, _) = old {
                 returnedFromIdle(after: Date().timeIntervalSince(since))
             }
-            // A return always revalidates: presence and engine can disagree.
-            evaluate()
+            // Desync backstop: if the engine holds a past-due date after
+            // the helpers ran (e.g. a pause expired mid-absence and the due
+            // passed during sleep), credit the absence and re-enter through
+            // the grace warning; never slam an overlay on sit-down.
+            if case .working(let due, let kind) = state, due <= Date() {
+                if case .away(let since, _) = old,
+                   Date().timeIntervalSince(since) >= prefs.longDuration {
+                    lastLongBreakAt = Date()
+                }
+                warnSoon(kind: kind)
+            }
         default:
             break
         }
@@ -149,12 +161,15 @@ final class BreakEngine {
             transition(.idle(since: since, pending: PendingBreak(dueAt: due, kind: kind)))
         case .heldByContext(let kind, let overdueSince):
             transition(.idle(since: since, pending: PendingBreak(dueAt: overdueSince, kind: kind)))
-        case .inBreak:
-            // Walking away during a break is taking the break.
-            endBreak(completed: true)
+        case .inBreak(let kind, _):
+            // Only lock/sleep reach here (hidIdle is suppressed in-break).
+            // Locking mid-break is taking the break: credit it and go idle
+            // directly, with no intermediate .working transition and no
+            // completion chime into an empty room.
+            if kind == .long { lastLongBreakAt = Date() }
             transition(.idle(since: since, pending: nil))
-        default:
-            break
+        case .pausedByUser, .idle, .offHours:
+            break // paused stays paused; already idle; off-hours has no cycle
         }
     }
 
@@ -643,7 +658,10 @@ final class BreakEngine {
         guard let fireAt else { return } // indefinite pause: no timer at all
 
         let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + max(0, fireAt.timeIntervalSinceNow), leeway: leeway)
+        // Wall clock, not CPU clock: deadline-based timers suspend during
+        // sleep, so a due date passing mid-sleep left a stale .working with
+        // a hidden countdown until the suspended timer finally caught up.
+        t.schedule(wallDeadline: .now() + max(0, fireAt.timeIntervalSinceNow), leeway: leeway)
         t.setEventHandler { [weak self] in self?.evaluate() }
         t.resume()
         timer = t

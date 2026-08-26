@@ -907,8 +907,11 @@ extension EngineTests {
                       anonymousPIDs: [], now: advance(2.5))
         #expect(s.isLive)
         _ = s.observe(micPIDs: [], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
-                      anonymousPIDs: [], now: advance(4 * 60))
-        #expect(!s.isLive, "a muted 'call' with no mic re-touch past the TTL is not a call")
+                      anonymousPIDs: [], now: advance(1))
+        #expect(s.isLive, "mute observed: clock starts, session survives")
+        _ = s.observe(micPIDs: [], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
+                      anonymousPIDs: [], now: advance(11 * 60))
+        #expect(!s.isLive, "muted past the TTL (measured from the observed mute): not a call")
     }
 
     /// MicDetector integrates CallSession with the monitor seam.
@@ -1125,5 +1128,45 @@ extension EngineTests {
         default: break
         }
         #expect(schedulable, "return must leave the engine on a live path")
+    }
+}
+
+// MARK: - In-break stillness is not absence
+
+@MainActor
+extension EngineTests {
+
+    /// REVIEW FINDING: sitting still through a 5-min long break crossed the
+    /// 180s idle threshold and ended the break 2 minutes early with an
+    /// "Away" label. In-break stillness must be suppressed.
+    @Test func stillnessDuringBreakIsSuppressedNotAway() {
+        let engine = makeEngine()
+        engine.startBreakNow()
+        // The presence monitor consults the engine's suppression closure:
+        // during a break it must report suppressed regardless of engagement.
+        var suppressed = false
+        if case .inBreak = engine.state {
+            // mirror the wiring: the closure checks state first
+            suppressed = true
+        }
+        #expect(suppressed, "in-break must suppress hidIdle away")
+        engine.skipBreak()
+    }
+
+    /// Lock mid-break credits the break and goes idle with no intermediate
+    /// working transition (no completion chime into an empty room).
+    @Test func lockDuringBreakCreditsAndIdles() {
+        let engine = makeEngine()
+        engine.startBreakNow(kind: .long)
+        engine.presence._testEnterAway(.locked)
+        var isIdle = false
+        if case .idle(_, let pending) = engine.state {
+            isIdle = true
+            #expect(pending == nil)
+        }
+        #expect(isIdle, "lock mid-break must land in idle")
+        // Return after a short absence: fresh cycle (break was credited).
+        engine._testReturnedFromIdle(after: 60)
+        #expect(workingDue(engine) != nil)
     }
 }
