@@ -41,9 +41,10 @@ enum CGSession {
 /// left by a dead PID is removed and re-acquired once.
 enum SingleInstanceLock {
     private static var lockPath: String {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory,
-                                           in: .userDomainMask)[0]
-            .appendingPathComponent("Halftone", isDirectory: true)
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("Halftone", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("instance.lock").path
     }

@@ -4,7 +4,7 @@ import Foundation
 /// exists at ~/.config/halftone/hooks/<event>, run it with context in env
 /// vars. Fire-and-forget, detached, never blocks the engine.
 ///
-/// Events: break-warning, break-start, break-end, break-skipped, hold-start,
+/// Events: break-warning, break-start, break-end, hold-start,
 /// hold-end, idle-start, idle-end, reminder-blink, reminder-posture.
 @MainActor
 final class EventHooks {

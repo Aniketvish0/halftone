@@ -48,7 +48,8 @@ enum ContextFlag: String {
 }
 
 /// A single detection source. Detectors are cheap to start/stop so the user
-/// can toggle each one at runtime; `isActive` reflects the current toggle.
+/// can toggle each one at runtime; `isDetected` is only meaningful while
+/// started.
 @MainActor
 protocol ContextDetector: AnyObject {
     var flag: ContextFlag { get }

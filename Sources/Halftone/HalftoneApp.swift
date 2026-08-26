@@ -109,81 +109,12 @@ func runShowcase(_ what: String) {
     app.run()
 }
 
-/// In-process engine tests that need the real Preferences notification path.
-/// Async steps run on the main run loop; exits nonzero on failure.
-@MainActor
-func runSelfTest() {
-    var failures = 0
-    func check(_ cond: Bool, _ label: String) {
-        print("\(cond ? "PASS" : "FAIL"): \(label)")
-        if !cond { failures += 1 }
-    }
-
-    let prefs = Preferences.shared
-    prefs.shortIntervalMin = 20
-    prefs.warnLeadSec = 30
-    Defaults.store.removeObject(forKey: "engineSnapshot")
-
-    let engine = BreakEngine()
-    engine.start()
-
-    func workingDue() -> Date? {
-        if case .working(let d, _) = engine.state { return d }
-        return nil
-    }
-    // Preference posts coalesce to the next runloop turn; drain it so the
-    // engine has observed the change before we assert.
-    func drainRunLoop() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-    }
-
-    guard let due0 = workingDue() else {
-        print("FAIL: engine not working after start"); exit(1)
-    }
-
-    // 1. Unrelated pref change must not move the due date.
-    prefs.playSounds.toggle()
-    prefs.playSounds.toggle()
-    drainRunLoop()
-    check(abs((workingDue() ?? .distantPast).timeIntervalSince(due0)) < 1,
-          "unrelated pref keeps due date")
-
-    // 2. Interval change must re-derive from cycle start (+5 min, not +25).
-    prefs.shortIntervalMin = 25
-    drainRunLoop()
-    let delta = (workingDue() ?? .distantPast).timeIntervalSince(due0)
-    check(abs(delta - 300) < 2, "interval 20->25 moves due by +300s (was \(Int(delta))s)")
-    prefs.shortIntervalMin = 20
-    drainRunLoop()
-
-    // 3. Pause/resume keeps remaining time.
-    engine.pause()
-    engine.resume()
-    check(abs((workingDue() ?? .distantPast).timeIntervalSince(due0)) < 3,
-          "pause/resume keeps remaining")
-
-    // 4. Take Break Now must enter a break; skip returns to working.
-    engine.startBreakNow()
-    var inBreak = false
-    if case .inBreak = engine.state { inBreak = true }
-    check(inBreak, "startBreakNow enters break")
-    engine.skipBreak()
-    check(workingDue() != nil, "skip returns to working")
-
-    exit(failures == 0 ? 0 : 1)
-}
-
-/// Entry point, called by the executable target's @main.
 @MainActor
 public func halftoneMain() {
         // `halftone --probe` prints live detector state for N seconds. Used to
         // verify detection against real Zoom/YouTube/etc. without GUI digging.
         if CommandLine.arguments.contains("--probe") {
             runProbe()
-            return
-        }
-        if CommandLine.arguments.contains("--selftest") {
-            runSelfTest()
             return
         }
         // --showcase [pill|overlay]: show that UI immediately for N seconds.

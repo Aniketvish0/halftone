@@ -204,7 +204,8 @@ final class AudioProcessMonitor {
             if out { newOut.insert(pid) }
         }
 
-        if newMic != micPIDs || newOut != outputPIDs || newBundles != bundleIDs {
+        if newMic != micPIDs || newOut != outputPIDs || newBundles != bundleIDs
+            || newAnonymous != anonymousPIDs {
             micPIDs = newMic
             outputPIDs = newOut
             bundleIDs = newBundles

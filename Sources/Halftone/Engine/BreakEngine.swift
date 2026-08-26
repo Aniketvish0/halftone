@@ -52,8 +52,6 @@ final class BreakEngine {
     /// where they stopped instead of restarting the full interval.
     private var pausedRemaining: (kind: BreakKind, remaining: TimeInterval)?
 
-    private let wakeRecovery = RepeatingPoller()
-
     private let prefs = Preferences.shared
     private var timer: DispatchSourceTimer?
 
@@ -286,6 +284,7 @@ final class BreakEngine {
     /// `preferencesChanged` relies on to re-derive due dates.
     private func enterWorking(due: Date, kind: BreakKind) {
         cycleStartedAt = due.addingTimeInterval(-prefs.shortInterval)
+        typingRetries = 0
         transition(.working(nextBreakAt: due, kind: kind))
     }
 
@@ -389,39 +388,41 @@ final class BreakEngine {
 
     /// Shell hooks on the transitions users script against. Deliberately
     /// edge-triggered (state class changes, not re-arms within a state).
-    private func fireHooks(from old: State, to new: State) {
-        func cls(_ s: State) -> String {
+    private enum StateClass {
+        case working, warning, inBreak, paused, held, idle, offHours
+
+        init(_ s: State) {
             switch s {
-            case .working: "working"
-            case .warning: "warning"
-            case .inBreak: "inBreak"
-            case .pausedByUser: "paused"
-            case .heldByContext: "held"
-            case .idle: "idle"
-            case .offHours: "offHours"
+            case .working: self = .working
+            case .warning: self = .warning
+            case .inBreak: self = .inBreak
+            case .pausedByUser: self = .paused
+            case .heldByContext: self = .held
+            case .idle: self = .idle
+            case .offHours: self = .offHours
             }
         }
-        let (o, n) = (cls(old), cls(new))
+    }
+
+    private func fireHooks(from old: State, to new: State) {
+        let (o, n) = (StateClass(old), StateClass(new))
         guard o != n else { return }
         switch n {
-        case "warning": EventHooks.shared.fire("break-warning")
-        case "inBreak":
+        case .warning: EventHooks.shared.fire("break-warning")
+        case .inBreak:
             if case .inBreak(let kind, _) = new {
                 EventHooks.shared.fire("break-start", context: ["kind": kind.rawValue])
             }
-        case "held":
+        case .held:
             EventHooks.shared.fire("hold-start",
                                    context: ["reasons": context.holdReasonsSummary])
-        case "idle": EventHooks.shared.fire("idle-start")
+        case .idle: EventHooks.shared.fire("idle-start")
         default: break
         }
         switch o {
-        case "inBreak":
-            // Distinguish completed vs skipped via where we land: a skip goes
-            // straight to working with a fresh full cycle; both fire break-end.
-            EventHooks.shared.fire("break-end")
-        case "held": EventHooks.shared.fire("hold-end")
-        case "idle": EventHooks.shared.fire("idle-end")
+        case .inBreak: EventHooks.shared.fire("break-end")
+        case .held: EventHooks.shared.fire("hold-end")
+        case .idle: EventHooks.shared.fire("idle-end")
         default: break
         }
     }
@@ -633,7 +634,7 @@ final class BreakEngine {
             case .heldByContext:
                 return (nil, .seconds(0)) // released by contextChanged()
             case .idle:
-                return (nil, .seconds(0)) // released by IdleMonitor / unlock
+                return (nil, .seconds(0)) // released by PresenceMonitor
             case .offHours:
                 return (OfficeHours.nextBoundary(), .seconds(30))
             }
@@ -678,7 +679,7 @@ final class BreakEngine {
         case .heldByContext:
             if !context.shouldHold { contextChanged() }
         case .idle:
-            break // exits via IdleMonitor.onReturned / systemCameBack
+            break // exits via presenceChanged
         case .offHours:
             officeHoursChanged()
         }

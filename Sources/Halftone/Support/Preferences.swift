@@ -186,9 +186,11 @@ final class Preferences {
     }
 
     // Derived intervals as TimeInterval
-    var shortInterval: TimeInterval { TimeInterval(shortIntervalMin * 60) }
-    var shortDuration: TimeInterval { TimeInterval(shortDurationSec) }
-    var longInterval: TimeInterval { TimeInterval(longIntervalMin * 60) }
-    var longDuration: TimeInterval { TimeInterval(longDurationSec) }
+    // Clamped: the store is writable via `defaults write`, and a zero
+    // interval spins the schedule loop on the main thread.
+    var shortInterval: TimeInterval { TimeInterval(max(1, shortIntervalMin) * 60) }
+    var shortDuration: TimeInterval { TimeInterval(max(5, shortDurationSec)) }
+    var longInterval: TimeInterval { TimeInterval(max(1, longIntervalMin) * 60) }
+    var longDuration: TimeInterval { TimeInterval(max(5, longDurationSec)) }
     var warnLead: TimeInterval { TimeInterval(warnLeadSec) }
 }
