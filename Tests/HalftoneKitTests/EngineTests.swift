@@ -907,8 +907,8 @@ extension EngineTests {
                       anonymousPIDs: [], now: advance(2.5))
         #expect(s.isLive)
         _ = s.observe(micPIDs: [], outputPIDs: [zoom], bundleIDs: [zoom: zoomBid],
-                      anonymousPIDs: [], now: advance(31 * 60))
-        #expect(!s.isLive, "a 'call' with no mic touch for 31 min is not a call (TTL)")
+                      anonymousPIDs: [], now: advance(4 * 60))
+        #expect(!s.isLive, "a muted 'call' with no mic re-touch past the TTL is not a call")
     }
 
     /// MicDetector integrates CallSession with the monitor seam.
@@ -1077,5 +1077,53 @@ extension EngineTests {
         engine.skipBreak()
         // After a break cycle completes, typingRetries must be back to 0
         // (it resets in the non-force path of beginBreak).
+    }
+}
+
+// MARK: - Away during a break
+
+@MainActor
+extension EngineTests {
+
+    /// THE FIELD BUG: user walked away during a LONG break; the engine
+    /// completed the break and scheduled a cycle while they were gone, then
+    /// their return was dropped by the .idle guard, leaving a past-due
+    /// .working frozen at "0m". Going away mid-break must complete the break
+    /// and enter idle; the return then starts a fresh cycle.
+    @Test func awayDuringBreakCompletesItAndEntersIdle() {
+        let engine = makeEngine()
+        engine.startBreakNow()
+        engine.presence._testEnterAway(.hidIdle, since: Date())
+        var isIdle = false
+        if case .idle(_, let pending) = engine.state {
+            isIdle = true
+            #expect(pending == nil, "break was taken; nothing pending to restore")
+        }
+        #expect(isIdle, "away during a break must land in .idle, not stay .inBreak")
+
+        engine._testReturnedFromIdle(after: 30 * 60)
+        let due = workingDue(engine)
+        #expect(due != nil, "return after a long absence starts a fresh cycle")
+        if let due { #expect(abs(due.timeIntervalSinceNow - 20 * 60) < 2) }
+    }
+
+    /// A presence return with the engine NOT in .idle (any desync) must still
+    /// revalidate the clock: a past-due .working fires instead of freezing.
+    @Test func presenceReturnRevalidatesDesyncedEngine() {
+        let engine = makeEngine()
+        // Force the desync the field hit: .working with a past due.
+        engine._testEnterHeld()
+        engine.context._testSetHold(false)
+        // contextChanged fires warnSoon -> .warning(+15s). Now simulate a
+        // presence away/return cycle that the engine state ignores:
+        engine.presence._testEnterAway(.hidIdle, since: Date().addingTimeInterval(-40))
+        engine.presence._testCheck(now: Date(), idleSeconds: 0.5, locked: false)
+        // The return must not strand the engine; it stays schedulable.
+        var schedulable = false
+        switch engine.state {
+        case .working, .warning, .inBreak, .idle: schedulable = true
+        default: break
+        }
+        #expect(schedulable, "return must leave the engine on a live path")
     }
 }

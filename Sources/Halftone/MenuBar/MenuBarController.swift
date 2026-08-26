@@ -157,9 +157,10 @@ struct MenuBarLabel: View {
             case .minutesUntil(let end):
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     let remaining = end.timeIntervalSince(max(context.date, Date()))
-                    let mins = max(0, Int((remaining / 60).rounded(.up)))
-                    Text("\(mins)m")
-                        .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                    if remaining > 0 {
+                        Text("\(Int((remaining / 60).rounded(.up)))m")
+                            .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                    }
                 }
             case .ticker(let end):
                 Text(timerInterval: Date()...max(end, Date()),

@@ -17,18 +17,11 @@ enum Presence: Equatable {
     var isAway: Bool { if case .away = self { return true }; return false }
 }
 
-/// The sole owner of "is the user here". Lock, sleep, wake, and HID idle are
-/// all INPUTS to this monitor; nothing else may declare the user away or
-/// back. (Field bug: the engine entered its idle state on a lock
-/// notification behind this monitor's back, leaving the exit callbacks
-/// structurally unreachable — "Away" stuck on screen while the user typed.)
+/// Sole owner of user presence. Lock, sleep, wake, and HID idle are inputs;
+/// nothing else may declare the user away or back.
 ///
 /// Invariant: every away state carries its own poll backstop. Notifications
-/// accelerate transitions; no transition DEPENDS on one being delivered.
-/// - .locked  -> 2s poll of the window server's lock flag
-/// - .asleep  -> wake notification + the same poll (lock flag also covers
-///               the wake-into-login-window case)
-/// - .hidIdle -> the return poll (2s fresh, 10s after a minute)
+/// accelerate transitions; no transition depends on one being delivered.
 @MainActor
 final class PresenceMonitor {
     private(set) var presence: Presence = .present
@@ -173,9 +166,7 @@ final class PresenceMonitor {
                     transition(to: .present, cancelled: false)
                     armThresholdWatch(idleSeconds: idleSeconds)
                 } else if isSuppressed?() ?? false {
-                    // Engagement appeared with no input: the away call was
-                    // wrong (on a call / watching all along). Retract WITHOUT
-                    // break crediting.
+                    // Engagement with no input: retract without crediting.
                     transition(to: .present, cancelled: true)
                     armThresholdWatch(idleSeconds: 0)
                 } else {
@@ -187,8 +178,7 @@ final class PresenceMonitor {
                 enterAway(.locked)
             } else if idleSeconds >= threshold {
                 if isSuppressed?() ?? false {
-                    // Watching/on a call, hands off: not away. Re-check at a
-                    // relaxed pace; suppression ending matters in ~30s.
+                    // Engaged with hands off: not away.
                     arm(after: 30, leeway: .seconds(10))
                 } else {
                     transition(to: .away(since: now.addingTimeInterval(-idleSeconds),

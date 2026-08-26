@@ -74,30 +74,21 @@ final class BreakEngine {
         context.onChange = { [weak self] in
             guard let self else { return }
             self.contextChanged()
-            // Hold changes rarely transition (mid-working): re-evaluate the
-            // reminder gate and republish the display here, not only in
-            // syncUI. (Field bug: mid-working hold flips never reached the
-            // menu bar until the next timeline tick, up to 60s or unbounded
-            // under occlusion.)
+            // Hold changes rarely transition; the gate and display must
+            // still update.
             self.microReminders?.setActive(self.allowsMicroReminders)
             self.publishDisplay()
         }
 
         presence.isSuppressed = { [weak self] in
-            // Sitting still on a call, camera on, sharing, or watching is
-            // not "away": raw engagement detection, deliberately not gated
-            // on the hold toggles (those choose break-holding, not away
-            // semantics). Field bug: a 20-min countdown restarted mid-call
-            // because a hands-still meeting crossed the idle threshold and
-            // the "return" credited a break.
+            // Raw engagement, not hold toggles: sitting still on a call or
+            // watching is not "away" regardless of break preferences.
             self?.context.isEngaged ?? false
         }
         presence.onChange = { [weak self] old, new in
             self?.presenceChanged(from: old, to: new)
         }
-        // Presence starts with the engine (HalftoneApp calls start()), never
-        // before it: starting the monitor in init raced engine.start() and
-        // desynced the two on every cold boot.
+        // Presence starts in start(), after state restore.
     }
 
     // MARK: - Context (Smart Pause) integration
@@ -145,6 +136,8 @@ final class BreakEngine {
             } else if case .away(let since, _) = old {
                 returnedFromIdle(after: Date().timeIntervalSince(since))
             }
+            // A return always revalidates: presence and engine can disagree.
+            evaluate()
         default:
             break
         }
@@ -158,6 +151,10 @@ final class BreakEngine {
             transition(.idle(since: since, pending: PendingBreak(dueAt: due, kind: kind)))
         case .heldByContext(let kind, let overdueSince):
             transition(.idle(since: since, pending: PendingBreak(dueAt: overdueSince, kind: kind)))
+        case .inBreak:
+            // Walking away during a break is taking the break.
+            endBreak(completed: true)
+            transition(.idle(since: since, pending: nil))
         default:
             break
         }
@@ -373,10 +370,8 @@ final class BreakEngine {
     private var isTransitioning = false
 
     private func transition(_ new: State) {
-        // syncUI's side effects (making the overlay key, hiding panels) can
-        // post workspace notifications that synchronously re-enter here via
-        // detector callbacks; the nested transition then fired hooks out of
-        // order against stale state. Defer nested requests one turn.
+        // syncUI side effects can synchronously re-enter via workspace
+        // notifications; defer nested transitions one turn.
         guard !isTransitioning else {
             DispatchQueue.main.async { [weak self] in self?.transition(new) }
             return
@@ -480,9 +475,8 @@ final class BreakEngine {
         publishDisplay()
     }
 
-    /// The single writer of the menu bar's observable state. Called on every
-    /// transition (via syncUI) and every context change, so the icon can
-    /// never lag a state change.
+    /// Single writer of the menu bar model; runs on every transition and
+    /// context change.
     private func publishDisplay() {
         let display = MenuBarDisplay.compute(
             state: state,
@@ -528,9 +522,7 @@ final class BreakEngine {
             snap.workingDueAt = due
             snap.workingKind = kind
         case .idle(_, let pending?):
-            // A lock-then-shutdown must not discard the in-flight cycle:
-            // restore treats this like a short absence (due still honored
-            // if future, warnSoon otherwise via the normal restore gate).
+            // Keep the in-flight cycle across lock-then-shutdown.
             snap.workingDueAt = pending.dueAt
             snap.workingKind = pending.kind
         default:
@@ -557,10 +549,7 @@ final class BreakEngine {
                 enterWorking(due: due, kind: kind)
                 return true
             }
-            // Due in the past or stale: the user was away (sleep/shutdown).
-            // Credit the absence the way returnedFromIdle would, then start
-            // a fresh cycle. (Field bug: a laptop wake restored a past-due
-            // snapshot and fired a long break within 15s of opening the lid.)
+            // Past-due or stale: credit the absence, start fresh.
             if awayDuration >= prefs.longDuration {
                 lastLongBreakAt = Date()
             }

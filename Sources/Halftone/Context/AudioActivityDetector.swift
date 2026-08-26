@@ -124,9 +124,7 @@ final class AudioProcessMonitor {
 
     private func stop() {
         guard started else { return }
-        // Order matters: mark stopped BEFORE cancelling, so an in-flight
-        // listener on the .utility queue that lands after cancel() schedules
-        // a refresh that no-ops on the started guard instead of reviving.
+        // Mark stopped before cancelling so a late listener no-ops.
         started = false
         AudioObjectRemovePropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject), &listAddr, queue, listener)
@@ -154,9 +152,8 @@ final class AudioProcessMonitor {
     private func refresh() {
         guard started else { return }
 
-        // 1. Fetch process object list. A transient coreaudiod failure must
-        // not freeze stale PID sets (a stale "call" persisted for minutes in
-        // the field): re-arm the debounce and try again.
+        // A transient coreaudiod failure must not freeze stale PID sets:
+        // re-arm and retry.
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(
             AudioObjectID(kAudioObjectSystemObject), &listAddr, 0, nil, &size) == noErr,
@@ -249,30 +246,19 @@ final class AudioProcessMonitor {
     }
 }
 
-/// The lifecycle of one call: seeded by sustained mic capture, surviving
-/// mutes while the same app keeps producing audio, ended by silence from
-/// that app, a hard TTL, or the mic never having been genuinely held.
-///
-/// Evidence rules (each traces to a field bug):
-/// - SEEDING requires the same PID to hold the mic across two consecutive
-///   observations spanning >= minSeedDuration. One-frame touches (dictation
-///   daemons, browser permission probes) latched permanent phantom calls.
-/// - Only PIDs with a RESOLVED bundle ID can seed: the ignore list cannot
-///   vouch for anonymous helpers, and they seeded phantoms through the
-///   `if let` bypass.
-/// - SURVIVING a mute requires the surviving output PID to still report the
-///   bundle ID captured at seed time (kills PID reuse and cross-purpose
-///   audio sustain).
-/// - TTL: without a mic re-touch for maxMuteSurvival, the session ends.
-///   No phantom outlives its evidence.
+/// One call's lifecycle, driven by evidence:
+/// - Seeding: same named PID on the mic across observations spanning
+///   minSeedDuration (blips and anonymous helpers cannot seed).
+/// - Mute survivorship: seeded PIDs must keep outputting under the bundle ID
+///   captured at seed.
+/// - TTL: no mic re-touch within maxMuteSurvival ends the session.
+/// - Ceiling: continuous mic past maxContinuousDuration is not a call.
 struct CallSession {
     static let minSeedDuration: TimeInterval = 2
-    static let maxMuteSurvival: TimeInterval = 30 * 60
-    /// No call runs for >2 hours of continuous mic without a single mute or
-    /// break. A browser tab holding getUserMedia permanently (Dia/Arc pre-join
-    /// preview, a stuck WebRTC session) is the field case. After this ceiling
-    /// the session is expired, and the next mic release will not re-seed
-    /// until a genuine new session begins.
+    /// A muted call must re-touch the mic within this window; browser
+    /// helpers multiplex tabs, so same-PID output alone is weak evidence.
+    static let maxMuteSurvival: TimeInterval = 3 * 60
+    /// Continuous mic past this is a stuck tab, not a meeting.
     static let maxContinuousDuration: TimeInterval = 2 * 60 * 60
 
     /// pid -> bundle ID captured at seed time.
@@ -284,9 +270,7 @@ struct CallSession {
 
     var isLive: Bool { !participants.isEmpty }
 
-    /// Bundle IDs sustaining the session (for the menu's hold summary —
-    /// a call must always be nameable; a nameless call was the field
-    /// signature of the phantom bug).
+    /// Bundle IDs sustaining the session; every call must be nameable.
     var participantBundleIDs: [String] { Array(Set(participants.values)).sorted() }
 
     /// The first observation where a participant was seeded.
@@ -328,15 +312,12 @@ struct CallSession {
             }
         }
 
-        // 5. TTL: a muted "call" that hasn't touched the mic in
-        // maxMuteSurvival is not a call.
+        // 5. Mute TTL.
         if isLive, now.timeIntervalSince(lastMicTouch) > Self.maxMuteSurvival {
             participants = [:]
         }
 
-        // 6. Continuous-duration ceiling: a "call" with the mic held
-        // continuously for > maxContinuousDuration is a stuck browser tab,
-        // not a meeting.
+        // 6. Continuous-duration ceiling.
         if isLive, let start = sessionStartedAt,
            now.timeIntervalSince(start) > Self.maxContinuousDuration,
            !micPIDs.isEmpty {
@@ -403,9 +384,8 @@ final class MicDetector: ContextDetector {
                                       anonymousPIDs: monitor.anonymousPIDs,
                                       now: now)
 
-        // A candidate needs a second observation >= minSeedDuration later to
-        // seed; CoreAudio may stay silent until the mic releases. Poll once
-        // per second only while an unseeded candidate exists.
+        // Seeding needs a second observation; CoreAudio may stay silent
+        // until release. Poll only while an unseeded candidate exists.
         if !monitor.micPIDs.isEmpty && !session.isLive {
             seedTimer.start(interval: 1, leeway: .milliseconds(200)) { [weak self] in
                 self?.recheck()

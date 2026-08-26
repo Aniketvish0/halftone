@@ -16,10 +16,7 @@ final class ContextEngine {
     /// What the UI shows as the hold reason (kept during linger).
     private(set) var holdReasons: Set<ContextFlag> = []
 
-    /// Menu-ready summary of the hold reasons. Call holds name the apps
-    /// SUSTAINING the session (participants survive mutes; the live mic set
-    /// is empty while muted, and a nameless "On a call" was the field
-    /// signature of the phantom-call bug).
+    /// Menu-ready hold summary; call holds name the session participants.
     var holdReasonsSummary: String {
         var names = holdReasons.map(\.displayName).sorted()
         if holdReasons.contains(.micInUse) {
@@ -52,10 +49,8 @@ final class ContextEngine {
     private let deepFocus = DeepFocusAppDetector()
 
     private var lingerTimer: DispatchSourceTimer?
-    /// Union of every flag seen during the CURRENT hold, deciding the linger
-    /// class on release. (Field bugs: tracking only the last non-empty set
-    /// let a 0.3s media blip flip a pure call onto the 60s linger, and let
-    /// one mic sample truncate a video's linger to 10s.)
+    /// Union of every flag seen during the current hold; decides the
+    /// linger class on release.
     private var holdUnion: Set<ContextFlag> = []
 
     /// Built once: detector paired with the preference that enables it.
@@ -71,10 +66,7 @@ final class ContextEngine {
 
     private var recomputePending = false
 
-    /// One recompute per runloop turn: a single CoreAudio event updates
-    /// several detectors, each firing onChange; recomputing on the first
-    /// callback observed a half-updated world in dictionary order (spurious
-    /// linger starts, icon flaps).
+    /// One recompute per runloop turn: detectors settle before composing.
     private func scheduleRecompute() {
         guard !recomputePending else { return }
         recomputePending = true
@@ -178,11 +170,8 @@ final class ContextEngine {
         let stableFlags: Set<ContextFlag> = [.micInUse, .cameraInUse, .screenCaptured]
         let union = holdUnion
         holdUnion = []
-        // A call is stable evidence (the mic session outlives silences and
-        // mutes via CallSession), so a hold that ever contained the mic gets
-        // the short linger even when media co-fired: browser calls hold
-        // display-sleep assertions, which made the long class structurally
-        // mandatory for every Meet/Zoom-web call.
+        // Mic presence means short linger: CallSession already outlives
+        // mutes, and browser calls always co-fire media.
         let stable = !union.isEmpty
             && (union.subtracting(stableFlags).isEmpty || union.contains(.micInUse))
         let linger: TimeInterval = stable
