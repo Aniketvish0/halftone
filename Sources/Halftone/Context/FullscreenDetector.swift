@@ -72,7 +72,10 @@ final class FullscreenDetector: ContextDetector {
     // MARK: Space-type signal (primary)
 
     private typealias CIDFn = @convention(c) () -> Int32
-    private typealias CopySpacesFn = @convention(c) (Int32) -> CFArray
+    // "Copy" in the SPI name = Create Rule: the CFArray is +1 and ours to
+    // release. Returning it as CFArray let Swift bridge without releasing,
+    // leaking one array per Space check.
+    private typealias CopySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>
 
     private static let slsConnection: Int32? = {
         guard let h = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
@@ -93,7 +96,7 @@ final class FullscreenDetector: ContextDetector {
     /// neither matches screen.frame). nil = SkyLight unavailable.
     static func anyDisplayOnFullscreenSpace() -> Bool? {
         guard let cid = slsConnection, let copySpaces else { return nil }
-        guard let displays = copySpaces(cid) as? [[String: Any]] else { return nil }
+        guard let displays = copySpaces(cid).takeRetainedValue() as? [[String: Any]] else { return nil }
         for display in displays {
             if let current = display["Current Space"] as? [String: Any],
                (current["type"] as? Int) == 4 {

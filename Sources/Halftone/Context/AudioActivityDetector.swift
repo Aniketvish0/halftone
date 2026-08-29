@@ -230,13 +230,17 @@ final class AudioProcessMonitor {
             mSelector: kAudioProcessPropertyBundleID,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain)
-        var cf: CFString? = nil
-        var size = UInt32(MemoryLayout<CFString?>.size)
-        let err = withUnsafeMutablePointer(to: &cf) { ptr in
+        // Create Rule: the returned CFString is +1 and WE must release it.
+        // Bridging with `as String?` alone leaked one CFString per read
+        // (28k leaks over three days of uptime in the field).
+        var unmanaged: Unmanaged<CFString>? = nil
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let err = withUnsafeMutablePointer(to: &unmanaged) { ptr in
             AudioObjectGetPropertyData(obj, &addr, 0, nil, &size, ptr)
         }
-        guard err == noErr, let s = cf as String?, !s.isEmpty else { return nil }
-        return s
+        guard err == noErr, let unmanaged else { return nil }
+        let s = unmanaged.takeRetainedValue() as String
+        return s.isEmpty ? nil : s
     }
 
     private func readFlag(_ obj: AudioObjectID, _ addr: inout AudioObjectPropertyAddress) -> Bool {
