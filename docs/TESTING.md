@@ -1,6 +1,7 @@
 # Testing disciplines
 
-Rules earned from field failures. Every rule below traces to a real bug the
+Rules earned from field failures. The bugs themselves, with root causes and
+lessons, are catalogued in [BUGLOG.md](BUGLOG.md). Every rule below traces to a real bug the
 user hit that the test suite missed. Check this list before shipping any
 change; add a rule whenever a field report exposes a new class.
 

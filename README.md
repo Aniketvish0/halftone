@@ -119,6 +119,9 @@ The long version, including the research notes and what didn't work, is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [docs/RESEARCH-detection.md](docs/RESEARCH-detection.md), and
 [docs/RESEARCH-overlay-shell.md](docs/RESEARCH-overlay-shell.md).
+Every field bug, its root cause, and the lesson lives in
+[docs/BUGLOG.md](docs/BUGLOG.md); the testing rules those bugs produced are
+in [docs/TESTING.md](docs/TESTING.md).
 
 ## License
 
