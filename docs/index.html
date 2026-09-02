@@ -97,45 +97,184 @@
     </section>
   </div>
 
-  <!-- Screenshots -->
-  <section class="shots">
-    <figure class="shot">
-      <div class="shot-frame">
-        <img src="landing/shot-overlay.png" alt="Halftone full-screen break overlay with countdown" loading="lazy" onerror="this.closest('.shot-frame').hidden=true">
+  <!-- Smart Pause: the reason this exists -->
+  <section class="block" id="smart-pause">
+    <header class="block-head">
+      <p class="eyebrow">Smart Pause</p>
+      <h2>It sees your call and waits.</h2>
+      <p class="lede">Halftone watches the microphone, camera, screen sharing, video playback and fullscreen apps. When any of them is active, the break holds until you are done. No configuration, no calendar, no rule to remember.</p>
+    </header>
+
+    <div class="pause-demo reveal">
+      <div class="menubar-demo" aria-label="Menu bar showing Halftone holding a break during a call">
+        <div class="fake-window mb-window" aria-hidden="true">
+          <div class="fake-titlebar"><i></i><i></i><i></i></div>
+          <div class="fake-lines"><span style="width:58%"></span><span style="width:80%"></span><span style="width:44%"></span></div>
+        </div>
+        <span class="mb-item mb-dim" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+        </span>
+        <span class="mb-item mb-dim" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 10.5a14 14 0 0 1 20 0M5.5 14a9 9 0 0 1 13 0M9 17.5a4 4 0 0 1 6 0"/><circle cx="12" cy="20.5" r="0.8" fill="currentColor"/></svg>
+        </span>
+        <span class="mb-item mb-halftone">
+          <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <circle cx="6.5" cy="10" r="1.6" fill="currentColor" stroke="none"/>
+            <path d="M10.5 6.8a4.6 4.6 0 0 1 0 6.4"/>
+            <path d="M13.2 4.4a8 8 0 0 1 0 11.2"/>
+          </svg>
+          <span class="mb-count">18m</span>
+        </span>
+        <span class="mb-item mb-dim" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="15" height="10" rx="2"/><path d="M18 10h2v4h-2"/><rect x="5" y="9" width="9" height="6" fill="currentColor" stroke="none"/></svg>
+        </span>
+        <span class="mb-item mb-clock">Wed 10:42</span>
+        <div class="mb-menu" role="img" aria-label="Menu status line: Will hold, on a call, WhatsApp">
+          <div class="mb-menu-status">Will hold: On a call (WhatsApp)</div>
+          <div class="mb-menu-row">Take Break Now <kbd>&#8984;B</kbd></div>
+          <div class="mb-menu-row">Pause for 1 Hour</div>
+          <div class="mb-menu-row">Pause Until Resumed <kbd>&#8984;P</kbd></div>
+        </div>
       </div>
-      <figcaption>Full-screen breaks with a live countdown, on every display.</figcaption>
-    </figure>
-    <figure class="shot">
-      <div class="shot-frame">
-        <img src="landing/shot-pill.png" alt="Halftone warning pill with snooze button" loading="lazy" onerror="this.closest('.shot-frame').hidden=true">
+
+      <ul class="reasons" aria-label="What Smart Pause detects">
+        <li><span class="reason-ic" aria-hidden="true"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.5" cy="10" r="1.6" fill="currentColor" stroke="none"/><path d="M10.5 6.8a4.6 4.6 0 0 1 0 6.4"/><path d="M13.2 4.4a8 8 0 0 1 0 11.2"/></svg></span><b>Calls</b><span>Zoom, Meet, Teams, WhatsApp, FaceTime. Any app on the mic.</span></li>
+        <li><span class="reason-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="7" width="13" height="10" rx="2"/><path d="M16 10.5l5-2.5v8l-5-2.5"/></svg></span><b>Camera</b><span>Recording or on video. Held until the light goes off.</span></li>
+        <li><span class="reason-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M9 10l3-3 3 3"/></svg></span><b>Screen sharing</b><span>Presenting or screen recording. Nothing appears over your share.</span></li>
+        <li><span class="reason-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z" fill="currentColor" stroke="none"/></svg></span><b>Video</b><span>YouTube, a movie, a lecture. Detected without any browser extension.</span></li>
+        <li><span class="reason-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></span><b>Fullscreen</b><span>Games, presentations, focused writing. Detected on notched Macs too.</span></li>
+        <li><span class="reason-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></span><b>Focus apps</b><span>Pick apps that should never be interrupted. Your list, your rules.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- The three surfaces -->
+  <section class="block" id="surfaces">
+    <header class="block-head">
+      <p class="eyebrow">Three surfaces, in order</p>
+      <h2>Glow, then a word, then the break.</h2>
+      <p class="lede">Breaks should never be a jump scare. Halftone builds up to them.</p>
+    </header>
+
+    <div class="surfaces">
+      <figure class="surface reveal">
+        <div class="surface-frame glow-frame" aria-label="Ambient glow along the screen edges">
+          <div class="glow-edge glow-top"></div>
+          <div class="glow-edge glow-bottom"></div>
+          <div class="glow-edge glow-left"></div>
+          <div class="glow-edge glow-right"></div>
+          <div class="fake-window">
+            <div class="fake-titlebar"><i></i><i></i><i></i></div>
+            <div class="fake-lines"><span style="width:62%"></span><span style="width:84%"></span><span style="width:47%"></span><span style="width:71%"></span></div>
+          </div>
+        </div>
+        <figcaption><b>Two minutes out, the edges warm.</b> A soft glow eases in from the screen border. You feel the break coming without reading a single number.</figcaption>
+      </figure>
+
+      <figure class="surface reveal">
+        <div class="surface-frame pill-frame">
+          <div class="pill-demo" role="img" aria-label="Warning pill: Break in 0:27, Snooze">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span class="pill-text">Break in</span>
+            <span class="pill-time">0:27</span>
+            <span class="pill-snooze">Snooze</span>
+          </div>
+        </div>
+        <figcaption><b>Thirty seconds out, a quiet word.</b> A small pill at the top of the screen with a live countdown. Snooze if you are mid-thought.</figcaption>
+      </figure>
+
+      <figure class="surface surface-wide reveal">
+        <div class="surface-frame shot-frame">
+          <img src="landing/shot-overlay.png" alt="Halftone full-screen break: Look at something 20 feet away, with a countdown and snooze and skip controls" loading="lazy" width="1848" height="1200">
+        </div>
+        <figcaption><b>Then the break itself.</b> A calm full-screen overlay on every display, with a live countdown. Skip is always one keypress away, unless you choose a stricter mode.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- What's inside -->
+  <section class="block" id="inside">
+    <header class="block-head">
+      <p class="eyebrow">What's inside</p>
+      <h2>Small app. Complete idea.</h2>
+    </header>
+
+    <ul class="features">
+      <li class="feature reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+        <h3>20-20-20 by default</h3>
+        <p>Twenty seconds every twenty minutes, plus a longer break each hour. Every number is yours to change.</p>
+      </li>
+      <li class="feature reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 4h16v12H4z"/><path d="M8 20h8M12 16v4"/><path d="M6 10h4M14 10h4"/></svg></span>
+        <h3>Menu bar countdown</h3>
+        <p>Minutes to the next break, rendered by the system. The icon changes to show why a break is holding.</p>
+      </li>
+      <li class="feature reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+        <h3>Blink and posture nudges</h3>
+        <p>Three-second reminders on their own schedule. They wait out calls and breaks instead of stacking on top.</p>
+      </li>
+      <li class="feature reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+        <h3>Strictness you choose</h3>
+        <p>Gentle: skip anytime. Delayed: controls appear after a pause. Hold: two seconds of pressing to skip, no snooze.</p>
+      </li>
+      <li class="feature reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg></span>
+        <h3>Knows when you leave</h3>
+        <p>Step away and the time counts as your break. Lock the screen or close the lid and it does the right thing.</p>
+      </li>
+      <li class="feature reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
+        <h3>Office hours</h3>
+        <p>Set a working window. Outside it, Halftone goes quiet and shows a sleeping icon.</p>
+      </li>
+      <li class="feature reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg></span>
+        <h3>Scriptable</h3>
+        <p>Shell hooks on every event, Shortcuts actions, and a halftone:// URL scheme for Raycast and friends.</p>
+      </li>
+      <li class="feature reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></span>
+        <h3>0% CPU while it waits</h3>
+        <p>One armed timer, no polling. Native Swift, about 15 MB of memory, no Electron, no account, no network.</p>
+      </li>
+    </ul>
+  </section>
+
+  <!-- Install -->
+  <section class="block install" id="install">
+    <div class="install-card reveal">
+      <div>
+        <p class="eyebrow">Install</p>
+        <h2>Free. Open source. One download.</h2>
+        <p class="lede">Download the disk image, drag Halftone to Applications, open it once. It is signed by the developer, not the App Store, so macOS asks you to confirm the first launch: right-click the app, choose Open, then Open again.</p>
+        <p class="req">macOS 26 or later &middot; Apple silicon &middot; MIT license</p>
       </div>
-      <figcaption>A quiet heads-up before each break. Snooze if you're mid-thought.</figcaption>
-    </figure>
-    <figure class="shot">
-      <div class="shot-frame">
-        <img src="landing/shot-menubar.png" alt="Halftone menu bar icon and menu" loading="lazy" onerror="this.closest('.shot-frame').hidden=true">
+      <div class="cta">
+        <a class="btn btn-light" href="https://github.com/Aniketvish0/halftone/releases/latest/download/Halftone.dmg">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true">
+            <path d="M17.05 12.54c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.8 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.29-1.27 3.15-2.52.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.14zM14.46 4.9c.71-.86 1.19-2.06 1.06-3.26-1.02.04-2.26.68-2.99 1.54-.66.76-1.24 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.43z"/>
+          </svg>
+          Download for Mac
+        </a>
+        <a class="btn btn-dark" href="https://github.com/Aniketvish0/halftone">
+          <svg viewBox="0 0 16 16" width="17" height="17" fill="currentColor" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          View on GitHub
+        </a>
       </div>
-      <figcaption>Lives in the menu bar. Shows a person icon when it sees your call and holds the break.</figcaption>
-    </figure>
+    </div>
   </section>
 
   <!-- Footer -->
   <footer>
-    <div class="cta cta-small">
-      <a class="btn btn-light" href="https://github.com/Aniketvish0/halftone/releases/latest/download/Halftone.dmg">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
-          <path d="M17.05 12.54c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.8 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.29-1.27 3.15-2.52.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.14zM14.46 4.9c.71-.86 1.19-2.06 1.06-3.26-1.02.04-2.26.68-2.99 1.54-.66.76-1.24 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.43z"/>
-        </svg>
-        Download for Mac
-      </a>
-      <a class="btn btn-dark" href="https://github.com/Aniketvish0/halftone">
-        <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true">
-          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
-        </svg>
-        View on GitHub
-      </a>
-    </div>
-    <p>Free &amp; open source &middot; MIT &middot; Built for macOS</p>
+    <p>
+      <svg class="glyph" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2 A10 10 0 0 0 12 22 Z" fill="currentColor"/></svg>
+      Halftone &middot; Free and open source under MIT &middot; <a href="https://github.com/Aniketvish0/halftone/releases">Releases</a> &middot; <a href="https://github.com/Aniketvish0/halftone/blob/main/docs/BUGLOG.md">Bug log</a>
+    </p>
   </footer>
 
   <script src="landing/script.js"></script>

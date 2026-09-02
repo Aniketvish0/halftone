@@ -77,7 +77,7 @@
 
   /* ---------- Screenshot reveals ---------- */
 
-  var shots = document.querySelectorAll(".shot");
+  var shots = document.querySelectorAll(".shot, .reveal");
 
   if (reducedMotion || !("IntersectionObserver" in window)) {
     shots.forEach(function (el) { el.classList.add("in"); });
@@ -87,13 +87,13 @@
       entries.forEach(function (entry) {
         if (entry.isIntersecting) {
           // Small stagger when several enter at once.
-          var delay = Math.min(seen++ % 3, 2) * 90;
+          var delay = Math.min(seen++ % 4, 3) * 70;
           var el = entry.target;
           setTimeout(function () { el.classList.add("in"); }, delay);
           io.unobserve(el);
         }
       });
-    }, { rootMargin: "0px 0px -10% 0px", threshold: 0.15 });
+    }, { rootMargin: "0px 0px -5% 0px", threshold: 0.05 });
 
     shots.forEach(function (el) { io.observe(el); });
   }
