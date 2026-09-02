@@ -13,18 +13,18 @@
 }
 
 html[data-theme="afternoon"] {
-  --page-bg: #171225;
-  --page-fg: #ece7f5;
-  --page-fg-muted: #a79fc0;
-  --frame-bg: #221b36;
+  --page-bg: #1a1526;
+  --page-fg: #efe9f6;
+  --page-fg-muted: #ab9fc2;
+  --frame-bg: #251d38;
   --frame-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
 }
 
 html[data-theme="night"] {
-  --page-bg: #090a12;
-  --page-fg: #e4e7f2;
-  --page-fg-muted: #8b91a8;
-  --frame-bg: #131625;
+  --page-bg: #0a1020;
+  --page-fg: #e6e9f4;
+  --page-fg-muted: #8f97b0;
+  --frame-bg: #141b30;
   --frame-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
 }
 
@@ -43,42 +43,44 @@ body {
 
 /* ---------- Theme toggle ---------- */
 
+/* Sits on the sky in the hero's corner. Small and quiet: three glyphs in a
+   frosted strip, no heavy shadow. */
 .theme-toggle {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  z-index: 50;
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 3;
   display: flex;
   gap: 2px;
-  padding: 4px;
+  padding: 3px;
   border-radius: 999px;
-  background: var(--toggle-bg);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 4px 16px rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .theme-toggle button {
   appearance: none;
   border: 0;
   margin: 0;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: transparent;
-  color: var(--toggle-fg);
-  opacity: 0.65;
+  color: #fff;
+  opacity: 0.6;
   cursor: pointer;
-  transition: opacity 0.25s ease, background-color 0.25s ease;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
 }
 
 .theme-toggle button:hover { opacity: 1; }
 
 .theme-toggle button[aria-pressed="true"] {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 /* ---------- Hero + scroll shrink ---------- */
@@ -153,12 +155,15 @@ html:not([data-theme]) .sky-day { opacity: 1; }
   background: linear-gradient(180deg, #0b57c9 0%, #2f7fe3 38%, #8fc0f2 74%, #e8f2fc 100%);
 }
 
+/* Golden hour: a clear sky cooling at the top, warming to the horizon.
+   Kept airy on purpose; the old version went muddy in the middle. */
 .sky-afternoon {
-  background: linear-gradient(180deg, #221a55 0%, #4a2f96 36%, #8a4fbe 64%, #d96d9c 86%, #f2a17c 100%);
+  background: linear-gradient(180deg, #3a4ea6 0%, #7f6bc4 30%, #d98aa6 58%, #f6b287 80%, #ffe0b8 100%);
 }
 
+/* Deep navy rather than near-black, with room for an aurora. */
 .sky-night {
-  background: linear-gradient(180deg, #05060f 0%, #0a0d22 45%, #161241 80%, #241a52 100%);
+  background: linear-gradient(180deg, #070c1e 0%, #0e1a3d 42%, #182c62 76%, #22397a 100%);
 }
 
 /* Drifting mesh blobs */
@@ -183,12 +188,13 @@ html:not([data-theme]) .sky-day { opacity: 1; }
 .sky-day .blob-b { width: 45vw; height: 45vw; right: -10%; top: 22%; background: rgba(120, 190, 255, 0.55); }
 .sky-day .blob-c { width: 60vw; height: 40vw; left: 18%; bottom: -22%; background: rgba(255, 244, 214, 0.5); }
 
-.sky-afternoon .blob-a { width: 58vw; height: 58vw; left: -15%; top: -12%; background: rgba(99, 74, 214, 0.55); }
-.sky-afternoon .blob-b { width: 48vw; height: 48vw; right: -12%; top: 8%; background: rgba(214, 88, 160, 0.5); }
-.sky-afternoon .blob-c { width: 65vw; height: 42vw; left: 12%; bottom: -20%; background: rgba(255, 158, 102, 0.45); }
+.sky-afternoon .blob-a { width: 55vw; height: 55vw; left: -14%; top: -16%; background: rgba(170, 160, 255, 0.45); }
+.sky-afternoon .blob-b { width: 46vw; height: 46vw; right: -10%; top: 18%; background: rgba(255, 170, 190, 0.42); }
+.sky-afternoon .blob-c { width: 70vw; height: 40vw; left: 15%; bottom: -22%; background: rgba(255, 225, 175, 0.6); }
 
-.sky-night .blob-a { width: 60vw; height: 60vw; left: -18%; top: -20%; background: rgba(58, 48, 140, 0.4); }
-.sky-night .blob-b { width: 50vw; height: 50vw; right: -14%; bottom: -18%; background: rgba(96, 60, 180, 0.3); }
+.sky-night .blob-a { width: 60vw; height: 44vw; right: -16%; top: -14%; background: rgba(60, 170, 200, 0.22); }
+.sky-night .blob-b { width: 52vw; height: 52vw; left: -16%; top: 12%; background: rgba(90, 80, 220, 0.28); }
+.sky-night .blob-c { width: 70vw; height: 36vw; left: 15%; bottom: -20%; background: rgba(80, 120, 255, 0.24); }
 
 /* Star field: layered radial-gradient dots */
 .stars {
@@ -400,11 +406,12 @@ html[data-theme="night"] {
   display: grid;
   grid-template-columns: 1.15fr 1fr;
   gap: 28px;
-  align-items: start;
+  align-items: stretch; /* the demo card matches the reasons grid height */
 }
 
 .menubar-demo {
   position: relative;
+  height: 100%;
   min-height: 300px;
   padding: 0 14px;
   border-radius: 18px;
@@ -441,6 +448,7 @@ html[data-theme="night"] {
 .mb-clock { position: absolute; right: 12px; top: 0; }
 
 .mb-halftone {
+  position: relative; /* anchors the menu to this item */
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.18);
 }
@@ -449,18 +457,21 @@ html[data-theme="night"] {
 
 /* A window sits under the open menu so the demo reads as a desktop */
 .mb-window {
-  inset: 56px 8% 16px 34%;
+  inset: 60px 7% 7% 30%;
   z-index: 1;
-  opacity: 0.9;
+  border-color: rgba(20, 30, 60, 0.12);
+  box-shadow: 0 14px 40px rgba(20, 30, 60, 0.18);
 }
 
-/* The open menu */
+/* The open menu hangs from the item's left edge, as macOS draws it */
 .mb-menu {
   position: absolute;
   z-index: 2;
-  top: 44px;
-  left: 62px;
+  top: calc(100% + 5px);
+  left: 0;
   width: 300px;
+  text-align: left;
+  font-weight: 400;
   padding: 6px;
   border-radius: 12px;
   background: var(--mac-menu);
@@ -492,13 +503,14 @@ html[data-theme="night"] {
   color: rgba(242, 244, 250, 0.5);
 }
 
-/* Reasons list */
+/* Reasons list: equal-height rows so the two columns line up */
 .reasons {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
   gap: 10px;
 }
 
@@ -645,24 +657,43 @@ html[data-theme="night"] {
   height: auto;
 }
 
-/* ---------- Feature grid ---------- */
+/* ---------- Bento feature grid ---------- */
 
-.features {
+.bento {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 14px;
 }
 
-.feature {
-  padding: 20px 18px 18px;
-  border-radius: 16px;
+.tile {
+  grid-column: span 2;
+  padding: 22px 20px 20px;
+  border-radius: 18px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  transition-delay: 0s;
 }
+
+/* Wide tiles: copy on the left, a small exhibit on the right */
+.tile-wide {
+  grid-column: span 3;
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 22px;
+  align-items: center;
+  padding: 26px 24px;
+}
+
+/* Copy above the exhibit when the exhibit needs the full width */
+.tile-stack {
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 16px;
+}
+
+.tile-copy .feat-ic { margin-bottom: 14px; }
 
 .feat-ic {
   display: grid;
@@ -675,19 +706,74 @@ html[data-theme="night"] {
   color: var(--ic-fg);
 }
 
-.feature h3 {
+.tile h3 {
   margin: 0 0 6px;
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-.feature p {
+.tile p {
   margin: 0;
   font-size: 0.88rem;
   line-height: 1.5;
   color: var(--page-fg-muted);
 }
+
+/* Exhibit: resource stats */
+.stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.stats div {
+  padding: 14px 12px 12px;
+  border-radius: 12px;
+  background: var(--ic-bg);
+  text-align: center;
+}
+
+.stats dt {
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--page-fg-muted);
+}
+
+.stats dd {
+  margin: 4px 0 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--page-fg);
+}
+
+.stats dd small {
+  margin-left: 2px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--page-fg-muted);
+}
+
+/* Exhibit: a hook script */
+.code {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #14172a;
+  color: #dfe4f5;
+  font: 500 12px/1.65 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.code .c { color: rgba(223, 228, 245, 0.5); }
+.code .k { color: #b9ccff; }
+.code .s { color: #ffd39a; }
 
 /* ---------- Install ---------- */
 
@@ -761,8 +847,10 @@ footer a {
 /* ---------- Responsive ---------- */
 
 @media (max-width: 900px) {
-  .features { grid-template-columns: repeat(2, 1fr); }
+  .tile, .tile-wide { grid-column: span 3; }
+  .tile-wide { grid-template-columns: 1fr; }
   .pause-demo { grid-template-columns: 1fr; }
+  .menubar-demo { height: auto; min-height: 320px; }
   .install-card { grid-template-columns: 1fr; padding: 28px; }
   .install-card .cta { justify-self: start; width: min(100%, 320px); }
 }
@@ -777,7 +865,8 @@ footer a {
 @media (max-width: 480px) {
   .cta { flex-direction: column; }
   .cta .btn { width: 100%; max-width: 300px; justify-content: center; }
-  .features { grid-template-columns: 1fr; }
+  .tile, .tile-wide { grid-column: span 6; }
+  .code { white-space: pre-wrap; overflow-wrap: anywhere; }
   .theme-toggle { top: 12px; right: 12px; }
 }
 

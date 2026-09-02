@@ -26,27 +26,6 @@
 </head>
 <body>
 
-  <!-- Theme toggle -->
-  <div class="theme-toggle" role="group" aria-label="Sky theme">
-    <button type="button" data-set-theme="day" aria-label="Day theme" title="Day">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="4.2"/>
-        <path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7"/>
-      </svg>
-    </button>
-    <button type="button" data-set-theme="afternoon" aria-label="Afternoon theme" title="Afternoon">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-        <path d="M7.5 15.5a4.5 4.5 0 1 1 9 0"/>
-        <path d="M12 5.5v2.2M4.6 8.6l1.6 1.6M19.4 8.6l-1.6 1.6M2.5 15.5h3M18.5 15.5h3M3.5 19.5h17"/>
-      </svg>
-    </button>
-    <button type="button" data-set-theme="night" aria-label="Night theme" title="Night">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/>
-      </svg>
-    </button>
-  </div>
-
   <!-- Hero -->
   <div class="hero-wrap">
     <section class="hero">
@@ -65,6 +44,28 @@
           <div class="stars"></div>
           <div class="blob blob-a"></div>
           <div class="blob blob-b"></div>
+          <div class="blob blob-c"></div>
+        </div>
+
+        <!-- Theme toggle: lives on the sky, so it reads as part of the scene -->
+        <div class="theme-toggle" role="group" aria-label="Sky theme">
+          <button type="button" data-set-theme="day" aria-label="Day theme" title="Day">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2"/>
+              <path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7"/>
+            </svg>
+          </button>
+          <button type="button" data-set-theme="afternoon" aria-label="Afternoon theme" title="Afternoon">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M7.5 15.5a4.5 4.5 0 1 1 9 0"/>
+              <path d="M12 5.5v2.2M4.6 8.6l1.6 1.6M19.4 8.6l-1.6 1.6M2.5 15.5h3M18.5 15.5h3M3.5 19.5h17"/>
+            </svg>
+          </button>
+          <button type="button" data-set-theme="night" aria-label="Night theme" title="Night">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/>
+            </svg>
+          </button>
         </div>
 
         <div class="hero-content">
@@ -124,17 +125,18 @@
             <path d="M13.2 4.4a8 8 0 0 1 0 11.2"/>
           </svg>
           <span class="mb-count">18m</span>
+          <!-- The menu hangs off its item, the way macOS draws it -->
+          <div class="mb-menu" role="img" aria-label="Menu status line: Will hold, on a call, WhatsApp">
+            <div class="mb-menu-status">Will hold: On a call (WhatsApp)</div>
+            <div class="mb-menu-row">Take Break Now <kbd>&#8984;B</kbd></div>
+            <div class="mb-menu-row">Pause for 1 Hour</div>
+            <div class="mb-menu-row">Pause Until Resumed <kbd>&#8984;P</kbd></div>
+          </div>
         </span>
         <span class="mb-item mb-dim" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="15" height="10" rx="2"/><path d="M18 10h2v4h-2"/><rect x="5" y="9" width="9" height="6" fill="currentColor" stroke="none"/></svg>
         </span>
         <span class="mb-item mb-clock">Wed 10:42</span>
-        <div class="mb-menu" role="img" aria-label="Menu status line: Will hold, on a call, WhatsApp">
-          <div class="mb-menu-status">Will hold: On a call (WhatsApp)</div>
-          <div class="mb-menu-row">Take Break Now <kbd>&#8984;B</kbd></div>
-          <div class="mb-menu-row">Pause for 1 Hour</div>
-          <div class="mb-menu-row">Pause Until Resumed <kbd>&#8984;P</kbd></div>
-        </div>
       </div>
 
       <ul class="reasons" aria-label="What Smart Pause detects">
@@ -199,46 +201,65 @@
       <h2>Small app. Complete idea.</h2>
     </header>
 
-    <ul class="features">
-      <li class="feature reveal">
+    <ul class="bento">
+      <!-- Row 1: two wide cards that show, not tell -->
+      <li class="tile tile-wide reveal">
+        <div class="tile-copy">
+          <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></span>
+          <h3>Nothing running while it waits</h3>
+          <p>One armed timer, no polling, no Electron. macOS draws the countdown, so Halftone sleeps between breaks.</p>
+        </div>
+        <dl class="stats" aria-label="Resource use">
+          <div><dt>CPU idle</dt><dd>0.0<small>%</small></dd></div>
+          <div><dt>Memory</dt><dd>15<small>MB</small></dd></div>
+          <div><dt>Network</dt><dd>none</dd></div>
+        </dl>
+      </li>
+
+      <li class="tile tile-wide tile-stack reveal">
+        <div class="tile-copy">
+          <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg></span>
+          <h3>Scriptable end to end</h3>
+          <p>Shell hooks on every event, Shortcuts actions, and a URL scheme. Pause your music when a break starts, or log every break to a file.</p>
+        </div>
+        <pre class="code" aria-label="Example hook script"><span class="c">~/.config/halftone/hooks/break-start</span>
+<span class="k">#!/bin/zsh</span>
+osascript -e <span class="s">'tell app "Music" to pause'</span>
+
+<span class="c">Or from Raycast, Alfred, a keyboard:</span>
+open <span class="s">"halftone://pause?minutes=30"</span></pre>
+      </li>
+
+      <!-- Row 2 and 3: six compact tiles -->
+      <li class="tile reveal">
         <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
         <h3>20-20-20 by default</h3>
-        <p>Twenty seconds every twenty minutes, plus a longer break each hour. Every number is yours to change.</p>
+        <p>Twenty seconds every twenty minutes, a longer break each hour. Every number is yours to change.</p>
       </li>
-      <li class="feature reveal">
+      <li class="tile reveal">
         <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 4h16v12H4z"/><path d="M8 20h8M12 16v4"/><path d="M6 10h4M14 10h4"/></svg></span>
         <h3>Menu bar countdown</h3>
-        <p>Minutes to the next break, rendered by the system. The icon changes to show why a break is holding.</p>
+        <p>Minutes to the next break. The icon changes to say why a break is holding.</p>
       </li>
-      <li class="feature reveal">
-        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
-        <h3>Blink and posture nudges</h3>
-        <p>Three-second reminders on their own schedule. They wait out calls and breaks instead of stacking on top.</p>
-      </li>
-      <li class="feature reveal">
+      <li class="tile reveal">
         <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
         <h3>Strictness you choose</h3>
-        <p>Gentle: skip anytime. Delayed: controls appear after a pause. Hold: two seconds of pressing to skip, no snooze.</p>
+        <p>Gentle: skip anytime. Delayed: controls appear after a pause. Hold: press for two seconds to skip.</p>
       </li>
-      <li class="feature reveal">
+      <li class="tile reveal">
+        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+        <h3>Blink and posture nudges</h3>
+        <p>Three-second reminders on their own schedule. They wait out calls and breaks.</p>
+      </li>
+      <li class="tile reveal">
         <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg></span>
         <h3>Knows when you leave</h3>
         <p>Step away and the time counts as your break. Lock the screen or close the lid and it does the right thing.</p>
       </li>
-      <li class="feature reveal">
+      <li class="tile reveal">
         <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
         <h3>Office hours</h3>
         <p>Set a working window. Outside it, Halftone goes quiet and shows a sleeping icon.</p>
-      </li>
-      <li class="feature reveal">
-        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg></span>
-        <h3>Scriptable</h3>
-        <p>Shell hooks on every event, Shortcuts actions, and a halftone:// URL scheme for Raycast and friends.</p>
-      </li>
-      <li class="feature reveal">
-        <span class="feat-ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></span>
-        <h3>0% CPU while it waits</h3>
-        <p>One armed timer, no polling. Native Swift, about 15 MB of memory, no Electron, no account, no network.</p>
       </li>
     </ul>
   </section>
