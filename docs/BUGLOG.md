@@ -8,6 +8,25 @@ Format: what you saw / root cause / the lesson.
 
 ---
 
+## 20. Coming back from away took a minute to register (2026-09-03)
+
+**Saw:** Moon icon (away) stayed on the menu bar for a minute or more after
+sitting back down and using the machine.
+**Cause:** Two things. The return from away was the one path in the app that
+depended purely on a timer firing on schedule (a 10s poll of HID idle time),
+and the process had no App Nap opt-out. macOS naps a background accessory
+app with no windows and throttles its timers by tens of seconds. Every
+other path is woken by an event (CoreAudio, workspace notifications), which
+is why only this one lagged. The poll also used a CPU-clock deadline, which
+does not advance through sleep.
+**Lesson:** In a background utility, any behaviour that waits on a timer is
+at the mercy of App Nap; opt out (NSAppSleepDisabled plus a process
+activity) and prefer events. The return is now event-driven: a global mouse
+monitor exists only while away and ends the absence in the same runloop
+turn. The poll stays as the backstop for keyboard-only returns, at 2s for
+the first ten minutes, on the wall clock. Verified on the real app: a 180s
+poll fired 0.45s late against a 5s leeway.
+
 ## 19. Phantom "On a call" every morning after boot (2026-09-03)
 
 **Saw:** Cold boot, no call anywhere, menu bar shows the call icon with the

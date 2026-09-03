@@ -41,6 +41,17 @@ final class PresenceMonitor {
 
     private var timer: DispatchSourceTimer?
     private var running = false
+    /// Installed only while away: the first mouse or scroll event anywhere on
+    /// the system ends the absence in the same runloop turn, instead of
+    /// waiting for the next poll. Mouse-class global monitors need no
+    /// permission; keyboard-only returns fall back to the poll.
+    private var returnMonitor: Any?
+    /// What the current poll was armed for, so a late fire is measurable.
+    private var armedFor: (at: TimeInterval, delay: TimeInterval)?
+
+#if DEBUG
+    var _testHasReturnMonitor: Bool { returnMonitor != nil }
+#endif
 
     private var threshold: TimeInterval {
         TimeInterval(Preferences.shared.idleThresholdSec)
@@ -92,8 +103,29 @@ final class PresenceMonitor {
     func stop() {
         running = false
         timer?.cancel(); timer = nil
+        removeReturnMonitor()
         presence = .present
         lastAwayWasCancelled = false
+    }
+
+    // MARK: - Event-driven return
+
+    private func installReturnMonitor() {
+        guard returnMonitor == nil else { return }
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown, .rightMouseDown,
+                                           .otherMouseDown, .scrollWheel,
+                                           .leftMouseDragged, .rightMouseDragged]
+        returnMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            MainActor.assumeIsolated {
+                Trace.mark("presence.inputEvent")
+                self?.check()
+            }
+        }
+    }
+
+    private func removeReturnMonitor() {
+        if let m = returnMonitor { NSEvent.removeMonitor(m) }
+        returnMonitor = nil
     }
 
 #if DEBUG
@@ -199,6 +231,9 @@ final class PresenceMonitor {
         let old = presence
         presence = new
         lastAwayWasCancelled = cancelled
+        // The mouse monitor exists exactly while away.
+        if new.isAway { installReturnMonitor() } else { removeReturnMonitor() }
+        Trace.mark("presence.transition", "\(old.isAway ? "away" : "here") -> \(new.isAway ? "away" : "here")\(silent ? " (silent)" : "")")
         if !silent { onChange?(old, new) }
     }
 
@@ -206,8 +241,11 @@ final class PresenceMonitor {
 
     private func armBackstop() {
         guard case .away(let since, _) = presence else { return }
+        // The mouse monitor handles most returns instantly; this poll covers
+        // keyboard-only returns and lock/sleep exits. Fast for the first ten
+        // minutes, then relaxed: nobody is at the machine to notice.
         let awayFor = Date().timeIntervalSince(since)
-        arm(after: awayFor < 60 ? 2 : 10, leeway: .seconds(2))
+        arm(after: awayFor < 600 ? 2 : 10, leeway: .milliseconds(500))
     }
 
     private func armThresholdWatch(idleSeconds: TimeInterval) {
@@ -215,12 +253,21 @@ final class PresenceMonitor {
     }
 
     private func arm(after delay: TimeInterval, leeway: DispatchTimeInterval) {
+        armedFor = (ProcessInfo.processInfo.systemUptime, delay)
+        // Wall clock: a deadline-based timer does not advance through sleep.
         if let timer {
-            timer.schedule(deadline: .now() + delay, leeway: leeway)
+            timer.schedule(wallDeadline: .now() + delay, leeway: leeway)
         } else {
             let t = DispatchSource.makeTimerSource(queue: .main)
-            t.schedule(deadline: .now() + delay, leeway: leeway)
-            t.setEventHandler { [weak self] in self?.check() }
+            t.schedule(wallDeadline: .now() + delay, leeway: leeway)
+            t.setEventHandler { [weak self] in
+                guard let self else { return }
+                if Trace.enabled, let a = self.armedFor {
+                    let late = ProcessInfo.processInfo.systemUptime - a.at - a.delay
+                    Trace.mark("presence.poll", String(format: "armed=%.0fs late=%+.2fs", a.delay, late))
+                }
+                self.check()
+            }
             t.resume()
             timer = t
         }

@@ -128,6 +128,7 @@ final class BreakEngine {
     // MARK: - Presence integration (single owner: PresenceMonitor)
 
     private func presenceChanged(from old: Presence, to new: Presence) {
+        Trace.mark("presence.changed", "\(old.isAway ? "away" : "here") -> \(new.isAway ? "away" : "here")")
         switch (old.isAway, new.isAway) {
         case (false, true):
             enterIdle(since: { if case .away(let s, _) = new { return s } ; return Date() }())

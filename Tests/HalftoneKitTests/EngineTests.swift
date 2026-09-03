@@ -1245,3 +1245,32 @@ extension EngineTests {
         #expect(!engine.context.shouldHold, "fullscreen exit must release on the 10s linger, not 60s")
     }
 }
+
+// MARK: - Return from away is event-driven
+
+@MainActor
+extension EngineTests {
+
+    /// A global mouse monitor exists only while away, so the first input
+    /// event ends the absence without waiting for a poll. It must be gone
+    /// again once present (no idle listener while the user works).
+    @Test func returnMonitorLivesOnlyWhileAway() {
+        let m = PresenceMonitor()
+        #expect(!m._testHasReturnMonitor, "present: no monitor")
+        m._testEnterAway(.hidIdle, since: Date().addingTimeInterval(-200))
+        #expect(m._testHasReturnMonitor, "away: monitor installed")
+        m._testCheck(now: Date(), idleSeconds: 0.2, locked: false)
+        #expect(!m.presence.isAway)
+        #expect(!m._testHasReturnMonitor, "returned: monitor removed")
+        m.stop()
+    }
+
+    /// stop() must tear the monitor down too (idle detection toggled off).
+    @Test func stopRemovesReturnMonitor() {
+        let m = PresenceMonitor()
+        m._testEnterAway(.locked)
+        #expect(m._testHasReturnMonitor)
+        m.stop()
+        #expect(!m._testHasReturnMonitor)
+    }
+}

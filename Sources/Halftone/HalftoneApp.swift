@@ -7,12 +7,19 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var engine: BreakEngine!
     private var menuBar: MenuBarController!
+    /// Keeps App Nap off for the process lifetime (belt to the plist key).
+    /// Napping throttles timers by tens of seconds; the presence return poll
+    /// is the one path here that depends on a timer firing when asked.
+    private var activity: NSObjectProtocol?
     private var overlay: OverlayController!
     private var warningPill: WarningPillController!
     private var ambientGlow: AmbientGlowController!
     private var reminders: MicroReminders!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep],
+            reason: "Presence and break timing must not be throttled")
         engine = BreakEngine()
         overlay = OverlayController(engine: engine)
         warningPill = WarningPillController(engine: engine)

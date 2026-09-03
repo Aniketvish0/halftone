@@ -11,6 +11,9 @@
     <key>CFBundlePackageType</key>       <string>APPL</string>
     <key>LSMinimumSystemVersion</key>    <string>26.0</string>
     <key>LSUIElement</key>               <true/>
+    <!-- A background utility that polls (presence return) must not be
+         App Napped: napping throttles timers by tens of seconds. -->
+    <key>NSAppSleepDisabled</key>        <true/>
     <key>NSHumanReadableCopyright</key>  <string>Personal build</string>
     <key>CFBundleURLTypes</key>
     <array>
