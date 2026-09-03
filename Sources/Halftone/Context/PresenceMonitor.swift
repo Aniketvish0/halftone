@@ -39,6 +39,13 @@ final class PresenceMonitor {
     /// with no input (set for the transition delivered to onChange).
     private(set) var lastAwayWasCancelled = false
 
+    /// Set when a screen lock was observed during this absence. An unlock
+    /// after that is an authentication (password, Touch ID, Apple Watch), and
+    /// Touch ID produces no keyboard or mouse event. Field trace: the user
+    /// unlocked with Touch ID and read the screen for 90s while the icon
+    /// still said away, because the return waited for HID input.
+    private var sawLock = false
+
     private var timer: DispatchSourceTimer?
     private var running = false
     /// Installed only while away: the first mouse or scroll event anywhere on
@@ -106,6 +113,7 @@ final class PresenceMonitor {
         removeReturnMonitor()
         presence = .present
         lastAwayWasCancelled = false
+        sawLock = false
     }
 
     // MARK: - Event-driven return
@@ -147,6 +155,7 @@ final class PresenceMonitor {
 
     private func enterAway(_ reason: AwayReason, at entry: Date = Date()) {
         guard running else { return }
+        if reason == .locked { sawLock = true }
         switch presence {
         case .away(_, let current) where strength(current) >= strength(reason):
             break // already away for an equal/stronger reason; keep its since
@@ -181,14 +190,19 @@ final class PresenceMonitor {
             switch reason {
             case .locked, .asleep:
                 if locked {
+                    sawLock = true
                     armBackstop() // still locked: keep polling
-                } else if idleSeconds < 2 {
-                    // Unlocked AND typing: definitely back.
+                } else if sawLock || idleSeconds < 2 {
+                    // Unlocked after a lock is an authenticated return, with
+                    // or without input (Touch ID makes none). Fresh input
+                    // after a wake is a return too.
                     transition(to: .present, cancelled: false)
                     armThresholdWatch(idleSeconds: idleSeconds)
                 } else {
-                    // Unlocked but hands still off: away continues, but the
-                    // reason decays to hidIdle so the return poll owns it.
+                    // Woke with no lock and no input (password not required
+                    // after sleep): nobody is confirmed here. Away continues
+                    // and the reason decays to hidIdle so the return poll and
+                    // the mouse monitor own it.
                     transition(to: .away(since: since, reason: .hidIdle),
                                cancelled: false, silent: true)
                     armBackstop()
@@ -232,7 +246,7 @@ final class PresenceMonitor {
         presence = new
         lastAwayWasCancelled = cancelled
         // The mouse monitor exists exactly while away.
-        if new.isAway { installReturnMonitor() } else { removeReturnMonitor() }
+        if new.isAway { installReturnMonitor() } else { removeReturnMonitor(); sawLock = false }
         Trace.mark("presence.transition", "\(old.isAway ? "away" : "here") -> \(new.isAway ? "away" : "here")\(silent ? " (silent)" : "")")
         if !silent { onChange?(old, new) }
     }

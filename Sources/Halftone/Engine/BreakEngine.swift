@@ -396,6 +396,7 @@ final class BreakEngine {
 
         let old = state
         state = new
+        Trace.mark("engine.transition", "\(String(describing: old).prefix(40)) -> \(String(describing: new).prefix(60))")
         persistSnapshot()
         armTimer()
         syncUI()

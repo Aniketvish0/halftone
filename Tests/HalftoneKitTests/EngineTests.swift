@@ -955,13 +955,39 @@ extension EngineTests {
 
     /// Unlocked but hands still off: away continues under hidIdle ownership
     /// (the return poll), then a real return exits.
-    @Test func unlockWithHandsOffDecaysToHidIdleThenReturns() {
+    /// FIELD TRACE (2026-09-03): the user unlocked with Touch ID, which makes
+    /// no keyboard or mouse event, then read the screen for 90s while the
+    /// icon still said away. An unlock after a lock IS the return: someone
+    /// authenticated. Input is not required.
+    @Test func unlockAfterLockIsAReturnEvenWithHandsOff() {
         let monitor = PresenceMonitor()
         monitor._testEnterAway(.locked, since: Date().addingTimeInterval(-100))
         monitor._testCheck(now: Date(), idleSeconds: 90, locked: false)
-        #expect(monitor.presence.isAway, "no input yet: still away")
+        #expect(!monitor.presence.isAway, "unlock is authentication; present regardless of input")
+        monitor.stop()
+    }
+
+    /// Lock observed during a sleep-initiated absence counts the same way:
+    /// the unlock ends the absence.
+    @Test func unlockAfterSleepThenLockIsAReturn() {
+        let monitor = PresenceMonitor()
+        monitor._testEnterAway(.asleep, since: Date().addingTimeInterval(-600))
+        monitor._testCheck(now: Date(), idleSeconds: 600, locked: true)   // woke to the lock screen
+        #expect(monitor.presence.isAway)
+        monitor._testCheck(now: Date(), idleSeconds: 601, locked: false)  // Touch ID
+        #expect(!monitor.presence.isAway, "unlock after a lock is a return")
+        monitor.stop()
+    }
+
+    /// A wake with no lock ever observed and no input (password not required
+    /// after sleep) confirms nobody; away continues under the return poll.
+    @Test func wakeWithoutLockAndNoInputStaysAway() {
+        let monitor = PresenceMonitor()
+        monitor._testEnterAway(.asleep, since: Date().addingTimeInterval(-600))
+        monitor._testCheck(now: Date(), idleSeconds: 600, locked: false)
+        #expect(monitor.presence.isAway, "no lock, no input: not confirmed present")
         if case .away(_, let reason) = monitor.presence {
-            #expect(reason == .hidIdle, "ownership must decay to the return poll")
+            #expect(reason == .hidIdle, "ownership decays to the return poll")
         }
         monitor._testCheck(now: Date(), idleSeconds: 0.3, locked: false)
         #expect(!monitor.presence.isAway)
