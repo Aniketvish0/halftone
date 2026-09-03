@@ -63,7 +63,18 @@ final class AudioProcessMonitor {
         "com.rogueamoeba.",
         "audio.existential.BlackHole",
         "com.electron.wispr-flow",
+        // Apple's speech stack (Siri readiness, dictation) captures the mic
+        // for seconds at a time after boot and never produces output. Field
+        // bug: it seeded a phantom call every morning.
+        "com.apple.CoreSpeech",
+        "com.apple.siri",
+        "com.apple.SpeechRecognition",
+        "com.apple.assistant",
     ]
+
+#if DEBUG
+    static var _testBuiltInIgnoredPrefixes: [String] { builtInIgnoredPrefixes }
+#endif
 
     private func currentIgnoredPrefixes() -> [String] {
         let user = (Defaults.store.array(forKey: "audioIgnoredBundlePrefixes") as? [String]) ?? []
@@ -76,6 +87,7 @@ final class AudioProcessMonitor {
     private let debounce = Debouncer(delay: 0.3)
 
     private lazy var listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+        Trace.mark("audio.event")
         self?.debounce.schedule {
             MainActor.assumeIsolated { self?.refresh() }
         }
@@ -210,6 +222,7 @@ final class AudioProcessMonitor {
             outputPIDs = newOut
             bundleIDs = newBundles
             anonymousPIDs = newAnonymous
+            Trace.mark("audio.refresh", "mic=\(newMic.sorted()) out=\(newOut.sorted())")
             notify()
         }
     }
@@ -253,7 +266,9 @@ final class AudioProcessMonitor {
 
 /// One call's lifecycle, driven by evidence:
 /// - Seeding: same named PID on the mic across observations spanning
-///   minSeedDuration (blips and anonymous helpers cannot seed).
+///   minSeedDuration (blips and anonymous helpers cannot seed), AND its app
+///   family is producing output. A call is two-way audio; speech
+///   recognition and dictation capture the mic with nothing coming back.
 /// - Mute survivorship: seeded PIDs must keep outputting under the bundle ID
 ///   captured at seed.
 /// - TTL: no mic re-touch within maxMuteSurvival ends the session.
@@ -291,6 +306,16 @@ struct CallSession {
     /// within a second and the ceiling never actually ends the hold).
     private var quarantined: Set<pid_t> = []
 
+    /// When the mic was last observed released while a session lived. Lets
+    /// the detector poll fast right after a hangup and slow down later.
+    var micReleasedAt: Date? { muteObservedAt }
+
+    /// Same app family: identical, or one bundle ID prefixes the other
+    /// (com.brave.Browser.helper ~ com.brave.Browser).
+    static func sameFamily(_ a: String, _ b: String) -> Bool {
+        a == b || a.hasPrefix(b) || b.hasPrefix(a)
+    }
+
     /// Feed one monitor observation. Returns true if liveness changed.
     mutating func observe(micPIDs: Set<pid_t>,
                           outputPIDs: Set<pid_t>,
@@ -309,12 +334,17 @@ struct CallSession {
             candidates[pid] = now
         }
 
-        // 2. Seed: candidates that have held the mic long enough.
+        // 2. Seed: candidates that have held the mic long enough AND whose
+        // app family is also producing output. One-way capture is speech
+        // recognition, not a call.
+        let outputBundles = outputPIDs.compactMap { bundleIDs[$0] }
         for (pid, since) in candidates where now.timeIntervalSince(since) >= Self.minSeedDuration {
-            if let bid = bundleIDs[pid] {
-                if participants.isEmpty { sessionStartedAt = now }
-                participants[pid] = bid
-            }
+            guard let bid = bundleIDs[pid] else { continue }
+            let twoWay = outputPIDs.contains(pid)
+                || outputBundles.contains { Self.sameFamily($0, bid) }
+            guard twoWay else { continue }
+            if participants.isEmpty { sessionStartedAt = now }
+            participants[pid] = bid
         }
 
         // 3. Track the observed mute boundary.
@@ -376,6 +406,7 @@ final class MicDetector: ContextDetector {
     /// Re-observes shortly after a candidate appears so seeding does not
     /// wait for the next CoreAudio event (which may be the mic RELEASE).
     private let seedTimer = RepeatingPoller()
+    private var pollInterval: TimeInterval?
 
     /// Apps sustaining the current call, for the hold summary.
     var callParticipants: [String] { session.participantBundleIDs }
@@ -395,6 +426,7 @@ final class MicDetector: ContextDetector {
         AudioProcessMonitor.shared.releaseMonitor()
         observerID = nil
         seedTimer.stop()
+        pollInterval = nil
         session.reset()
         isDetected = false
     }
@@ -413,23 +445,32 @@ final class MicDetector: ContextDetector {
 
         // Two windows need self-observation (CoreAudio stays silent between
         // state changes): an unseeded candidate (fast poll, so a 2s seed can
-        // be observed before release) and a muted survivorship (slow poll,
-        // so the mute TTL can actually fire between events).
+        // be observed before release) and a muted survivorship. Right after
+        // the mic drops the poll is fast, because a hangup ends output within
+        // seconds and every extra poll interval lands on the user as lag;
+        // after a minute it is a mute, so the poll backs off to 30s.
+        let wantedInterval: TimeInterval?
         if !monitor.micPIDs.isEmpty && !session.isLive {
-            seedTimer.start(interval: 1, leeway: .milliseconds(200)) { [weak self] in
-                self?.recheck()
-            }
+            wantedInterval = 1
         } else if session.isLive && monitor.micPIDs.isEmpty {
-            seedTimer.stop()
-            seedTimer.start(interval: 30, leeway: .seconds(5)) { [weak self] in
-                self?.recheck()
-            }
+            let sinceRelease = session.micReleasedAt.map { now.timeIntervalSince($0) } ?? 0
+            wantedInterval = sinceRelease < 60 ? 2 : 30
         } else {
+            wantedInterval = nil
+        }
+        if wantedInterval != pollInterval {
             seedTimer.stop()
+            pollInterval = wantedInterval
+            if let iv = wantedInterval {
+                seedTimer.start(interval: iv, leeway: .milliseconds(Int(iv * 100))) { [weak self] in
+                    self?.recheck()
+                }
+            }
         }
 
         if changed || session.isLive != isDetected {
             isDetected = session.isLive
+            Trace.mark("mic.detected", "\(isDetected) participants=\(session.participantBundleIDs)")
             onChange?()
         }
     }

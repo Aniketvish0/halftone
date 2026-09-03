@@ -167,16 +167,18 @@ final class ContextEngine {
         // Media genuinely flaps (chapter gaps, ad breaks), so only it earns
         // the user's configurable long linger. Field bug: a WhatsApp hangup
         // took 60+s of linger ON TOP of WhatsApp's own late mic release.
-        let stableFlags: Set<ContextFlag> = [.micInUse, .cameraInUse, .screenCaptured]
         let union = holdUnion
         holdUnion = []
-        // Mic presence means short linger: CallSession already outlives
-        // mutes, and browser calls always co-fire media.
-        let stable = !union.isEmpty
-            && (union.subtracting(stableFlags).isEmpty || union.contains(.micInUse))
+        // Only media playback genuinely flaps (chapter gaps, ad breaks), so
+        // only a media-driven hold earns the user's long linger. Everything
+        // else ends when its signal ends: mic (CallSession already outlives
+        // mutes), camera, screen share, a fullscreen Space, a focus app. A
+        // call that co-fired media still counts as stable.
+        let stable = union.contains(.micInUse) || !union.contains(.mediaPlaying)
         let linger: TimeInterval = stable
             ? min(10, TimeInterval(prefs.contextLingerSec))
             : TimeInterval(prefs.contextLingerSec)
+        Trace.mark("context.linger", "\(Int(linger))s union=\(union.map(\.rawValue).sorted())")
         guard linger > 0 else {
             holdReasons = []
             setHold(false)
@@ -253,7 +255,10 @@ final class ContextEngine {
 #endif
 
     private func setHold(_ hold: Bool) {
-        if hold != shouldHold { shouldHold = hold }
+        if hold != shouldHold {
+            shouldHold = hold
+            Trace.mark("context.hold", "\(hold) reasons=\(holdReasons.map(\.rawValue).sorted())")
+        }
         onChange?() // reasons may change even when hold doesn't
     }
 }

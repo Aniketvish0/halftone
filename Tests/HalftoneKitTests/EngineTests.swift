@@ -1170,3 +1170,78 @@ extension EngineTests {
         #expect(workingDue(engine) != nil)
     }
 }
+
+// MARK: - A call is two-way audio
+
+@MainActor
+extension EngineTests {
+
+    /// THE FIELD BUG (2026-09-03): after a cold boot, Apple's speech daemon
+    /// (corespeechd, bundle com.apple.CoreSpeech) held the mic for seconds
+    /// and seeded a phantom "On a call". It is named, so the anonymous rule
+    /// did not apply; it was not on the ignore list; and it held the mic
+    /// past the 2s seed window. A daemon that only listens must never seed.
+    @Test func oneWayMicCaptureNeverSeedsACall() {
+        var t = Date(timeIntervalSinceReferenceDate: 900_000_000)
+        func advance(_ dt: TimeInterval) -> Date { t = t.addingTimeInterval(dt); return t }
+        var s = CallSession()
+        let daemon: pid_t = 866
+        let bid = "com.apple.CoreSpeech"
+        // Sustained capture, no output anywhere in the family.
+        _ = s.observe(micPIDs: [daemon], outputPIDs: [], bundleIDs: [daemon: bid], anonymousPIDs: [], now: t)
+        _ = s.observe(micPIDs: [daemon], outputPIDs: [], bundleIDs: [daemon: bid], anonymousPIDs: [], now: advance(3))
+        _ = s.observe(micPIDs: [daemon], outputPIDs: [], bundleIDs: [daemon: bid], anonymousPIDs: [], now: advance(10))
+        #expect(!s.isLive, "mic without output is speech recognition, not a call")
+
+        // Unrelated app producing output does not make it two-way.
+        let music: pid_t = 300
+        _ = s.observe(micPIDs: [daemon], outputPIDs: [music],
+                      bundleIDs: [daemon: bid, music: "com.apple.Music"], anonymousPIDs: [], now: advance(3))
+        #expect(!s.isLive, "another app's output is not this family's output")
+    }
+
+    /// Browser calls split mic and output across helper PIDs of one family.
+    /// The family rule must still seed them.
+    @Test func splitFamilyTwoWayAudioSeeds() {
+        var t = Date(timeIntervalSinceReferenceDate: 900_000_000)
+        func advance(_ dt: TimeInterval) -> Date { t = t.addingTimeInterval(dt); return t }
+        var s = CallSession()
+        let micHelper: pid_t = 501, outHelper: pid_t = 502
+        let ids: [pid_t: String] = [micHelper: "com.brave.Browser.helper", outHelper: "com.brave.Browser.helper.renderer"]
+        _ = s.observe(micPIDs: [micHelper], outputPIDs: [outHelper], bundleIDs: ids, anonymousPIDs: [], now: t)
+        _ = s.observe(micPIDs: [micHelper], outputPIDs: [outHelper], bundleIDs: ids, anonymousPIDs: [], now: advance(2.5))
+        #expect(s.isLive, "same-family output on a different helper PID is two-way audio")
+    }
+
+    /// The speech stack is also on the built-in ignore list, so it never even
+    /// reaches CallSession. Both layers must hold independently.
+    @Test func speechDaemonIsIgnoredByPrefix() {
+        let ignored = AudioProcessMonitor._testBuiltInIgnoredPrefixes
+        for bid in ["com.apple.CoreSpeech", "com.apple.siri.something", "com.apple.SpeechRecognitionCore"] {
+            #expect(ignored.contains { bid.hasPrefix($0) }, "\(bid) must be ignored")
+        }
+        #expect(!ignored.contains { "com.apple.FaceTime".hasPrefix($0) }, "FaceTime must not be ignored")
+    }
+}
+
+// MARK: - Only media earns the long linger
+
+@MainActor
+extension EngineTests {
+
+    /// Leaving a fullscreen Space is unambiguous; the 60s media linger made
+    /// the icon lag a full minute after exiting fullscreen.
+    @Test func fullscreenExitUsesShortLinger() async {
+        prefs.pauseOnFullscreen = true
+        prefs.contextLingerSec = 60
+        await drainMainQueue()
+        let engine = makeEngine()
+        let fs = engine.context._testInstallDetector(flag: .fullscreenApp, enabled: \.pauseOnFullscreen)
+        fs.simulate(detected: true)
+        #expect(engine.context.shouldHold)
+        fs.simulate(detected: false)
+        try? await Task.sleep(for: .seconds(11))
+        await drainMainQueue()
+        #expect(!engine.context.shouldHold, "fullscreen exit must release on the 10s linger, not 60s")
+    }
+}

@@ -43,6 +43,7 @@ final class FullscreenDetector: ContextDetector {
     }
 
     private func eventFired() {
+        Trace.mark("fullscreen.event")
         recheck()
         // The settle re-read covers BOTH stale directions (entered fullscreen
         // but read old windowed bounds, or exited but read old full bounds).
@@ -57,6 +58,7 @@ final class FullscreenDetector: ContextDetector {
         let now = Self.frontmostIsFullscreen()
         guard now != isDetected else { return }
         isDetected = now
+        Trace.mark("fullscreen.detected", "\(now)")
         if now {
             // 30s: a stale-true costs at most a slightly-later break, so slow
             // verification is fine, and a 2h fullscreen movie stays cheap.

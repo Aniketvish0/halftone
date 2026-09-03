@@ -49,6 +49,7 @@ final class MediaPlaybackDetector: ContextDetector {
         let now = audioActive && assertionMatchesAudio()
         if now != isDetected {
             isDetected = now
+            Trace.mark("media.detected", "\(now)")
             onChange?()
         }
     }

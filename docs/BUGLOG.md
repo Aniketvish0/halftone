@@ -8,6 +8,27 @@ Format: what you saw / root cause / the lesson.
 
 ---
 
+## 19. Phantom "On a call" every morning after boot (2026-09-03)
+
+**Saw:** Cold boot, no call anywhere, menu bar shows the call icon with the
+countdown still running. A fresh probe found the mic holder: PID 866,
+`corespeechd`, Apple's speech daemon (Siri readiness and dictation). It
+grabs the mic for a few seconds at a time, most reliably right after boot.
+**Cause:** It passed every seeding rule. CoreAudio reports it with a real
+bundle ID (`com.apple.CoreSpeech`), so the "anonymous processes cannot
+seed" rule did not apply. It was not on the ignore list. And it holds the
+mic longer than the 2s seed window. Each capture re-seeded a call.
+**Lesson:** "Named" is not the same as "trusted"; a system daemon has a
+bundle ID too. The structural rule that was missing: a call is two-way
+audio. Speech recognition captures the mic while nothing in its app family
+produces output. Seeding now requires family output as well as sustained
+capture, and the speech stack is on the built-in ignore list as a second
+layer. Also from the same trace session: fullscreen and focus-app exits
+were wrongly on the 60s media linger; only media flaps, so only media
+earns the long linger. And the post-hangup survivorship poll ran every
+30s, which stacked up to 30s of lag on a browser call ending; it now polls
+at 2s for the first minute.
+
 ## 18. Memory leak: 69MB footprint, 28,956 leaked objects (v0.0.9 hotfix)
 
 **Saw:** Activity Monitor showed 69MB after 3 days of uptime (peak 266MB).

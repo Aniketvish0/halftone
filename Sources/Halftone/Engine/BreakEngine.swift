@@ -500,6 +500,7 @@ final class BreakEngine {
             holdReasons: context.holdReasons,
             showCountdown: prefs.showCountdownInMenuBar,
             now: Date())
+        Trace.mark("menubar.publish", display.symbol)
         let statusLine: String? = {
             switch state {
             case .heldByContext:
