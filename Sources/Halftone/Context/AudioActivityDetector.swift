@@ -222,7 +222,8 @@ final class AudioProcessMonitor {
             outputPIDs = newOut
             bundleIDs = newBundles
             anonymousPIDs = newAnonymous
-            Trace.mark("audio.refresh", "mic=\(newMic.sorted()) out=\(newOut.sorted())")
+            let name: (pid_t) -> String = { p in newBundles[p] ?? "anon(\(p))" }
+            Trace.record("audio", "mic=[\(newMic.sorted().map(name).joined(separator: " "))] out=[\(newOut.sorted().map(name).joined(separator: " "))]")
             notify()
         }
     }
@@ -470,7 +471,7 @@ final class MicDetector: ContextDetector {
 
         if changed || session.isLive != isDetected {
             isDetected = session.isLive
-            Trace.mark("mic.detected", "\(isDetected) participants=\(session.participantBundleIDs)")
+            Trace.record("call", "\(isDetected ? "LIVE" : "ended") participants=\(session.participantBundleIDs)")
             onChange?()
         }
     }

@@ -178,7 +178,7 @@ final class ContextEngine {
         let linger: TimeInterval = stable
             ? min(10, TimeInterval(prefs.contextLingerSec))
             : TimeInterval(prefs.contextLingerSec)
-        Trace.mark("context.linger", "\(Int(linger))s union=\(union.map(\.rawValue).sorted())")
+        Trace.record("linger", "\(Int(linger))s union=\(union.map(\.rawValue).sorted())")
         guard linger > 0 else {
             holdReasons = []
             setHold(false)
@@ -257,7 +257,7 @@ final class ContextEngine {
     private func setHold(_ hold: Bool) {
         if hold != shouldHold {
             shouldHold = hold
-            Trace.mark("context.hold", "\(hold) reasons=\(holdReasons.map(\.rawValue).sorted())")
+            Trace.record("hold", "\(hold ? "SET" : "CLEAR") reasons=\(holdReasons.map(\.rawValue).sorted())")
         }
         onChange?() // reasons may change even when hold doesn't
     }

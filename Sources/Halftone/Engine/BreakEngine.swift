@@ -128,7 +128,7 @@ final class BreakEngine {
     // MARK: - Presence integration (single owner: PresenceMonitor)
 
     private func presenceChanged(from old: Presence, to new: Presence) {
-        Trace.mark("presence.changed", "\(old.isAway ? "away" : "here") -> \(new.isAway ? "away" : "here")")
+        Trace.record("presence", "\(old.isAway ? "away" : "here") -> \(new.isAway ? "away" : "here")")
         switch (old.isAway, new.isAway) {
         case (false, true):
             enterIdle(since: { if case .away(let s, _) = new { return s } ; return Date() }())
@@ -383,6 +383,9 @@ final class BreakEngine {
     /// and reconcile the two imperative UI surfaces with the new state. The
     /// menu bar needs nothing — it derives from `state` via @Observable.
     private var isTransitioning = false
+    /// Last symbol written to the event log, so the log records icon
+    /// CHANGES rather than every republish.
+    private var lastLoggedSymbol = ""
 
     private func transition(_ new: State) {
         // syncUI side effects can synchronously re-enter via workspace
@@ -502,6 +505,10 @@ final class BreakEngine {
             holdReasons: context.holdReasons,
             showCountdown: prefs.showCountdownInMenuBar,
             now: Date())
+        if display.symbol != lastLoggedSymbol {
+            lastLoggedSymbol = display.symbol
+            Trace.record("icon", display.symbol)
+        }
         Trace.mark("menubar.publish", display.symbol)
         let statusLine: String? = {
             switch state {

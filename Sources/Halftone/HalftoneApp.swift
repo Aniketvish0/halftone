@@ -124,6 +124,12 @@ public func halftoneMain() {
             runProbe()
             return
         }
+        // `halftone --calls` reports how long each recent call took to
+        // release, from the durable event log. No setup, no relaunch.
+        if CommandLine.arguments.contains("--calls") {
+            CallReport.run()
+            return
+        }
         // --showcase [pill|overlay]: show that UI immediately for N seconds.
         // Exists so screenshots/tests don't have to race the real scheduler.
         if let idx = CommandLine.arguments.firstIndex(of: "--showcase"),
