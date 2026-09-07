@@ -65,6 +65,8 @@ final class ContextEngine {
     ]
 
     private var recomputePending = false
+    /// Raw detection state at the last recompute, for uniform signal logging.
+    private var lastDetected: [ContextFlag: Bool] = [:]
 
     /// One recompute per runloop turn: detectors settle before composing.
     private func scheduleRecompute() {
@@ -130,6 +132,16 @@ final class ContextEngine {
     }
 
     private func recompute(clearImmediately: Bool = false) {
+        // Every detector's flip is logged HERE, in one place, from the same
+        // table the engine composes from. A detector added later cannot be
+        // forgotten, and a signal that fires with its toggle off is still
+        // visible (the commonest "why didn't it hold?" answer).
+        for (detector, enabled) in all where lastDetected[detector.flag] != detector.isDetected {
+            lastDetected[detector.flag] = detector.isDetected
+            let gated = prefs[keyPath: enabled] ? "" : " (toggle off)"
+            Trace.record("signal", "\(detector.flag.rawValue) \(detector.isDetected ? "ON" : "OFF")\(gated)")
+        }
+
         var flags: Set<ContextFlag> = []
         for (detector, enabled) in all where prefs[keyPath: enabled] && detector.isDetected {
             flags.insert(detector.flag)

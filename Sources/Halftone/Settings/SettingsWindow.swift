@@ -122,6 +122,30 @@ struct SmartPausePane: View {
             } header: {
                 Text("Focus apps")
             }
+
+            Section {
+                Toggle(isOn: $prefs.debugLogging) {
+                    Label {
+                        Text("Verbose logging")
+                        Text("Records every detector event and poll, not just state changes. Turn on while chasing a detection bug.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } icon: { Image(systemName: "ladybug") }
+                }
+                HStack {
+                    Button("Reveal log in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([Trace.logURL])
+                    }
+                    Spacer()
+                    Text(verbatim: "halftone --report")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text("Signal changes are always recorded to ~/Library/Logs/Halftone/events.log. The report prints how long each signal took to show and to clear.")
+            }
         }
         .formStyle(.grouped)
     }

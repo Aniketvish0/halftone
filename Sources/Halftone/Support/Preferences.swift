@@ -67,6 +67,7 @@ final class Preferences {
         warnLeadSec = d.integer(forKey: Key.warnLeadSec)
         playSounds = d.bool(forKey: Key.playSounds)
         showCountdownInMenuBar = d.bool(forKey: Key.showCountdownInMenuBar)
+        debugLogging = d.bool(forKey: Key.debugLogging)
         pauseOnMic = d.bool(forKey: Key.pauseOnMic)
         pauseOnCamera = d.bool(forKey: Key.pauseOnCamera)
         pauseOnScreenCapture = d.bool(forKey: Key.pauseOnScreenCapture)
@@ -121,6 +122,7 @@ final class Preferences {
         static let postureIntervalMin = "postureIntervalMin"
         static let strictness = "strictness"
         static let skipDelaySec = "skipDelaySec"
+        static let debugLogging = "debugLogging"
     }
 
     var shortIntervalMin: Int { didSet { save(Key.shortIntervalMin, shortIntervalMin) } }
@@ -130,6 +132,11 @@ final class Preferences {
     var warnLeadSec: Int { didSet { save(Key.warnLeadSec, warnLeadSec) } }
     var playSounds: Bool { didSet { save(Key.playSounds, playSounds) } }
     var showCountdownInMenuBar: Bool { didSet { save(Key.showCountdownInMenuBar, showCountdownInMenuBar) } }
+
+    /// Verbose diagnostics. Off: the event log records state CHANGES only.
+    /// On: every OS event, poll fire and engine transition is recorded too,
+    /// which is what you want while hunting a detection bug.
+    var debugLogging: Bool { didSet { save(Key.debugLogging, debugLogging) } }
 
     // Smart Pause — each signal individually toggleable at runtime
     var pauseOnMic: Bool { didSet { save(Key.pauseOnMic, pauseOnMic) } }

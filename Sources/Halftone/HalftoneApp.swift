@@ -127,7 +127,12 @@ public func halftoneMain() {
         // `halftone --calls` reports how long each recent call took to
         // release, from the durable event log. No setup, no relaunch.
         if CommandLine.arguments.contains("--calls") {
-            CallReport.run()
+            CallReport.run(callsOnly: true)
+            return
+        }
+        // `halftone --report` covers every signal, not just calls.
+        if CommandLine.arguments.contains("--report") {
+            CallReport.run(callsOnly: false)
             return
         }
         // --showcase [pill|overlay]: show that UI immediately for N seconds.

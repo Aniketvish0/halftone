@@ -1,119 +1,168 @@
 import Foundation
 
-/// Reads the durable event log and reports, per call, how long each stage of
-/// the release took. The question this answers: after a hangup, how long
-/// until the menu bar stops saying "on a call"?
+/// Reads the durable event log and reports, per signal episode, how long each
+/// stage took. The questions this answers: which signal held breaks, and how
+/// long after it ended did the menu bar catch up?
 enum CallReport {
 
     private struct Event {
         let at: Date
-        let kind: String      // audio | call | hold | linger | icon | presence
+        let kind: String      // signal | call | hold | linger | icon | audio | presence
         let detail: String
     }
 
-    static func run() {
+    private struct Episode {
+        var signal: String
+        var on: Date
+        var off: Date?
+        var iconOn: Date?         // icon first showed a hold symbol
+        var holdClear: Date?
+        var iconOff: Date?        // icon returned to the counting symbol
+        var linger: String?
+        var app: String?
+        var overlapped = false    // another signal was live at release
+        var gated = false         // the user's toggle for this signal is off
+    }
+
+    private static let neutralIcons: Set<String> = ["circle.lefthalf.filled", "moon.zzz",
+                                                    "pause.circle", "sunset", "eye"]
+
+    static func run(callsOnly: Bool) {
         let events = load()
         guard !events.isEmpty else {
             print("No events yet at \(Trace.logURL.path).")
-            print("Use the app normally (place a call, hang up) and run this again.")
+            print("Use the app for a while, then run this again.")
             return
         }
-        let first = events.first!.at, last = events.last!.at
-        print("Halftone call report")
-        print("log: \(Trace.logURL.path)")
-        print("window: \(stamp(first)) to \(stamp(last))  (\(events.count) events)\n")
+        let episodes = build(from: events).filter { !callsOnly || $0.signal == "micInUse" }
 
-        let calls = sessions(from: events)
-        guard !calls.isEmpty else {
-            print("No call sessions recorded in this window.")
+        print("Halftone diagnostics")
+        print("log:    \(Trace.logURL.path)")
+        print("window: \(stamp(events.first!.at)) to \(stamp(events.last!.at))  (\(events.count) events)")
+        print("debug:  \(debugOn ? "on (verbose)" : "off (state changes only)")\n")
+
+        guard !episodes.isEmpty else {
+            print(callsOnly ? "No calls recorded in this window."
+                            : "No hold episodes recorded in this window.")
             return
         }
 
-        print("app                        started    talk   mic->end  end->icon  hangup->icon")
-        print(String(repeating: "-", count: 78))
-        for c in calls {
-            let app = c.app.count > 24 ? String(c.app.suffix(24)) : c.app
-            print(String(format: "%-26s %-10s %6s %10s %10s %13s",
-                         (app as NSString).utf8String!,
-                         (clock(c.started) as NSString).utf8String!,
-                         (dur(c.talk) as NSString).utf8String!,
-                         (dur(c.micDropToEnd) as NSString).utf8String!,
-                         (dur(c.endToIcon) as NSString).utf8String!,
-                         (dur(c.hangupToIcon) as NSString).utf8String!))
+        print(pad("signal", 15) + pad("start", 10) + rpad("held for", 9)
+              + rpad("ON lag", 8) + rpad("OFF lag", 9) + rpad("linger", 8) + "  app")
+        print(String(repeating: "-", count: 82))
+        for e in episodes {
+            let heldFor = e.off.map { $0.timeIntervalSince(e.on) }
+            let onLag = e.gated ? nil : e.iconOn.map { $0.timeIntervalSince(e.on) }
+            let offLag = (!e.gated && e.off != nil && e.iconOff != nil && !e.overlapped)
+                ? e.iconOff!.timeIntervalSince(e.off!) : nil
+            print(pad(e.signal + (e.gated ? " (off)" : ""), 15) + pad(clock(e.on), 10) + rpad(dur(heldFor), 9)
+                  + rpad(dur(onLag), 8) + rpad(dur(offLag), 9)
+                  + rpad(e.linger ?? "-", 8) + "  " + (e.app ?? "-"))
         }
+
+        summary(episodes)
+
         print("""
 
-        talk          mic held, first detection to the mic dropping
-        mic->end      mic released to the call session ending (survivorship)
-        end->icon     session ended to the menu bar icon changing back (linger)
-        hangup->icon  what you actually see: mic released to icon back to normal
+        held for  the signal itself, on to off (a call's talk time)
+        ON lag    signal on to the menu bar showing the hold icon
+        OFF lag   signal off to the icon counting again. This is the wait you see.
+        linger    the configured hold-after-activity that OFF lag mostly consists of
+        "-" in OFF lag means another signal was still holding, or this signal's
+        toggle is off ("(off)"), so the wait is not attributable to it.
         """)
     }
 
-    // MARK: - Parsing
-
-    private struct Session {
-        var app: String
-        var started: Date
-        var talk: TimeInterval?
-        var micDropToEnd: TimeInterval?
-        var endToIcon: TimeInterval?
-        var hangupToIcon: TimeInterval?
+    private static func summary(_ episodes: [Episode]) {
+        let bySignal = Dictionary(grouping: episodes, by: \.signal)
+        var rows: [(String, Int, TimeInterval?, TimeInterval?)] = []
+        for (sig, eps) in bySignal {
+            let ons = eps.filter { !$0.gated }
+                .compactMap { e in e.iconOn.map { $0.timeIntervalSince(e.on) } }
+            let offs = eps.compactMap { e -> TimeInterval? in
+                guard !e.gated, let off = e.off, let icon = e.iconOff, !e.overlapped else { return nil }
+                return icon.timeIntervalSince(off)
+            }
+            rows.append((sig, eps.count, median(ons), median(offs)))
+        }
+        guard !rows.isEmpty else { return }
+        print("\nmedian by signal")
+        print(String(repeating: "-", count: 46))
+        for (sig, n, on, off) in rows.sorted(by: { $0.0 < $1.0 }) {
+            print(pad(sig, 15) + pad("n=\(n)", 7)
+                  + "ON " + rpad(dur(on), 8) + "   OFF " + rpad(dur(off), 8))
+        }
     }
 
-    private static func sessions(from events: [Event]) -> [Session] {
-        var out: [Session] = []
-        var live: (started: Date, app: String, micDrop: Date?, ended: Date?)?
+    // MARK: - Episode building
+
+    private static func build(from events: [Event]) -> [Episode] {
+        var open: [String: Episode] = [:]     // signal -> episode awaiting release
+        var closed: [Episode] = []
+        var liveSignals: Set<String> = []
+        var lastCallApp: String?
 
         for e in events {
             switch e.kind {
-            case "call" where e.detail.hasPrefix("LIVE"):
-                if live == nil {
-                    live = (e.at, apps(in: e.detail), nil, nil)
+            case "signal":
+                let parts = e.detail.split(separator: " ").map(String.init)
+                guard parts.count >= 2 else { break }
+                let sig = parts[0], on = parts[1] == "ON"
+                if on {
+                    liveSignals.insert(sig)
+                    if open[sig] == nil {
+                        var ep = Episode(signal: sig, on: e.at)
+                        ep.gated = e.detail.contains("toggle off")
+                        if sig == "micInUse" { ep.app = lastCallApp }
+                        open[sig] = ep
+                    }
+                } else {
+                    liveSignals.remove(sig)
+                    open[sig]?.off = e.at
+                    if sig == "micInUse" { open[sig]?.app = lastCallApp }
                 }
-            case "audio":
-                // A mic list that is empty is the hangup (or the mute).
-                if var l = live, l.micDrop == nil, micIsEmpty(e.detail) {
-                    l.micDrop = e.at
-                    live = l
+
+            case "call":
+                if e.detail.hasPrefix("LIVE") {
+                    lastCallApp = apps(in: e.detail)
+                    open["micInUse"]?.app = lastCallApp
                 }
-                // Mic came back (unmute): the previous drop was not a hangup.
-                if var l = live, l.micDrop != nil, l.ended == nil, !micIsEmpty(e.detail) {
-                    l.micDrop = nil
-                    live = l
+
+            case "linger":
+                let n = e.detail.split(separator: " ").first.map(String.init) ?? "-"
+                for k in open.keys where open[k]?.off != nil && open[k]?.linger == nil {
+                    open[k]?.linger = n
                 }
-            case "call" where e.detail.hasPrefix("ended"):
-                if var l = live {
-                    l.ended = e.at
-                    live = l
+
+            case "hold":
+                if e.detail.hasPrefix("CLEAR") {
+                    for k in open.keys where open[k]?.off != nil { open[k]?.holdClear = e.at }
                 }
-            case "icon" where e.detail == "circle.lefthalf.filled" || e.detail == "moon.zzz":
-                if let l = live, let ended = l.ended {
-                    out.append(Session(
-                        app: l.app,
-                        started: l.started,
-                        talk: l.micDrop.map { $0.timeIntervalSince(l.started) },
-                        micDropToEnd: l.micDrop.map { ended.timeIntervalSince($0) },
-                        endToIcon: e.at.timeIntervalSince(ended),
-                        hangupToIcon: l.micDrop.map { e.at.timeIntervalSince($0) }))
-                    live = nil
+
+            case "icon":
+                let symbol = e.detail
+                if neutralIcons.contains(symbol) {
+                    // Icon is counting again: close every released episode.
+                    for (k, var ep) in open where ep.off != nil {
+                        ep.iconOff = e.at
+                        ep.overlapped = !liveSignals.isEmpty
+                        closed.append(ep)
+                        open.removeValue(forKey: k)
+                    }
+                } else {
+                    for (k, var ep) in open where ep.iconOn == nil && ep.off == nil {
+                        ep.iconOn = e.at
+                        open[k] = ep
+                    }
                 }
+
             default:
                 break
             }
         }
-        // A call still in progress: report what is known so far.
-        if let l = live {
-            out.append(Session(app: l.app, started: l.started,
-                               talk: l.micDrop.map { $0.timeIntervalSince(l.started) },
-                               micDropToEnd: nil, endToIcon: nil, hangupToIcon: nil))
-        }
-        return out
-    }
-
-    private static func micIsEmpty(_ detail: String) -> Bool {
-        guard let r = detail.range(of: "mic=[") else { return false }
-        return detail[r.upperBound...].hasPrefix("]")
+        // Episodes still open (signal live now, or never released).
+        closed.append(contentsOf: open.values)
+        return closed.sorted { $0.on < $1.on }
     }
 
     private static func apps(in detail: String) -> String {
@@ -139,12 +188,30 @@ enum CallReport {
         return lines.compactMap { line in
             let parts = line.split(separator: " ", maxSplits: 3).map(String.init)
             guard parts.count >= 3, let at = f.date(from: "\(parts[0]) \(parts[1])") else { return nil }
-            return Event(at: at, kind: parts[2],
-                         detail: parts.count > 3 ? parts[3] : "")
+            return Event(at: at, kind: parts[2], detail: parts.count > 3 ? parts[3] : "")
         }
     }
 
     // MARK: - Formatting
+
+    private static var debugOn: Bool {
+        UserDefaults(suiteName: "me.aniket.halftone")?.bool(forKey: "debugLogging")
+            ?? UserDefaults.standard.bool(forKey: "debugLogging")
+    }
+
+    private static func median(_ xs: [TimeInterval]) -> TimeInterval? {
+        guard !xs.isEmpty else { return nil }
+        let s = xs.sorted()
+        return s.count % 2 == 1 ? s[s.count / 2] : (s[s.count / 2 - 1] + s[s.count / 2]) / 2
+    }
+
+    private static func pad(_ s: String, _ n: Int) -> String {
+        s.count >= n ? s + " " : s + String(repeating: " ", count: n - s.count)
+    }
+
+    private static func rpad(_ s: String, _ n: Int) -> String {
+        s.count >= n ? " " + s : String(repeating: " ", count: n - s.count) + s
+    }
 
     private static func dur(_ t: TimeInterval?) -> String {
         guard let t else { return "-" }

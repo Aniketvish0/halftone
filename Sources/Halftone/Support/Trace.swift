@@ -21,15 +21,27 @@ enum Trace {
         return dir.appendingPathComponent("events.log")
     }
 
-    /// Developer trace: stderr, opt-in.
+    /// Verbose mode, read live so the Settings toggle takes effect without a
+    /// relaunch. `mark` events reach the log file only while this is on.
+    @MainActor
+    static var verbose: Bool { Preferences.shared.debugLogging }
+
+    /// Developer trace: stderr when HALFTONE_TRACE=1, and the log file too
+    /// while debug logging is on.
     static func mark(_ stage: String, _ detail: String = "") {
-        guard enabled else { return }
-        emitStderr(stage, detail)
+        if enabled { emitStderr(stage, detail) }
+        let wantsFile = Thread.isMainThread
+            ? MainActor.assumeIsolated({ verbose }) : false
+        if wantsFile { appendToLog(stage, detail) }
     }
 
     /// Durable event: the log file always, plus stderr when tracing.
     static func record(_ stage: String, _ detail: String = "") {
         if enabled { emitStderr(stage, detail) }
+        appendToLog(stage, detail)
+    }
+
+    private static func appendToLog(_ stage: String, _ detail: String) {
         let line = "\(Self.stamp.string(from: Date())) \(stage) \(detail)\n"
         lock.lock()
         defer { lock.unlock() }
