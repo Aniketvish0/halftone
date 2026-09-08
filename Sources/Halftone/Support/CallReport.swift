@@ -194,10 +194,10 @@ enum CallReport {
 
     // MARK: - Formatting
 
-    private static var debugOn: Bool {
-        UserDefaults(suiteName: "me.aniket.halftone")?.bool(forKey: "debugLogging")
-            ?? UserDefaults.standard.bool(forKey: "debugLogging")
-    }
+    // Defaults.store already picks the right domain for bundled and unbundled
+    // runs. Naming the suite by hand made AppKit warn, because the report runs
+    // inside the app bundle whose identifier that is.
+    private static var debugOn: Bool { Defaults.store.bool(forKey: "debugLogging") }
 
     private static func median(_ xs: [TimeInterval]) -> TimeInterval? {
         guard !xs.isEmpty else { return nil }

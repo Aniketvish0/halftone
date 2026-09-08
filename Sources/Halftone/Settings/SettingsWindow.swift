@@ -137,6 +137,7 @@ struct SmartPausePane: View {
                     }
                     Spacer()
                     Text(verbatim: "halftone --report")
+                        .help("Install with Scripts/install-cli.sh")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
